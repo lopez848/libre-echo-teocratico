@@ -82,3 +82,9 @@ Pending work: YouTube playlists from the Echo, the "Oye Mia" wake word and a sec
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Go toolchain for the Echo
+
+The Echo kernel has no `eventfd`, which Go >= 1.22 needs. `tools/go-echo/setup.sh` makes a local
+copy of a newer Go (default go1.27.4) with a one-function runtime patch that falls back to the
+pipe Go 1.21 used. Build with `GOTOOLCHAIN=local ~/.local/share/go-echo/go1.27.4/bin/go build ...`.

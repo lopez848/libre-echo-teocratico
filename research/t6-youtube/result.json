@@ -1,0 +1,97 @@
+{
+ "status": "partial",
+ "summary": "Go stdlib-only program animates the live innertube API like yt-dlp: search returning first-10 music videos works via WEB (params EgIQAQ); next with RD<videoId> works on both youtube (WEB, 25 items) and YouTube Music (WEB_REMIX, 50 items, artist clean from shortBylineText); ios_producer is the only tested client identity with audio formats carrying plain signed URLs (no PO token, no JS): itag 139 (HE-AAC 51 kb/s) and 140 (AAC-LC 132 kb/s), range GET 206 with 262143B. Single plain GET (no Range header) is throttled to ~32 KB/s; Range header or parallel ranged GETs reach 9-31 MB/s, so streaming runs ~2x realtime even throttled and much faster when ranged. android_vr, tv, tv_samsung, visionos return LOGIN_REQUIRED without cookies; ios and android return OK formats but WITHOUT any url or signatureCipher field (SABR-era), so they would require further work.",
+ "search_ok": true,
+ "mix_ok": true,
+ "mix_best_source": "youtube",
+ "clients": [
+  {
+   "name": "android_vr",
+   "status": "LOGIN_REQUIRED",
+   "audio_itags": [],
+   "plain_url": false,
+   "range_get_http": null,
+   "notes": "Sign in to confirm you're not a bot (no cookies used); no audio formats returned despite yt-dlp clientVersion 1.65.10."
+  },
+  {
+   "name": "ios",
+   "status": "OK",
+   "audio_itags": [
+    139,
+    140,
+    249,
+    250,
+    251
+   ],
+   "plain_url": false,
+   "range_get_http": null,
+   "notes": "OK with 5 audio itags but every format lacks both url and signatureCipher (SABR-era payload); would need further work, unusable as plain GET."
+  },
+  {
+   "name": "android",
+   "status": "OK",
+   "audio_itags": [
+    139,
+    140,
+    249,
+    251
+   ],
+   "plain_url": false,
+   "range_get_http": null,
+   "notes": "OK but formats carry no url/signatureCipher (only one of the two itags 599/600 mentioned before); unusable without extra work."
+  },
+  {
+   "name": "tv",
+   "status": "LOGIN_REQUIRED",
+   "audio_itags": [],
+   "plain_url": false,
+   "range_get_http": null,
+   "notes": "Sign in to confirm you're not a bot (no cookies used)."
+  },
+  {
+   "name": "tv_samsung",
+   "status": "LOGIN_REQUIRED",
+   "audio_itags": [],
+   "plain_url": false,
+   "range_get_http": null,
+   "notes": "Sign in to confirm you're not a bot (no cookies used)."
+  },
+  {
+   "name": "visionos",
+   "status": "LOGIN_REQUIRED",
+   "audio_itags": [],
+   "plain_url": false,
+   "range_get_http": null,
+   "notes": "Sign in to confirm you're not a bot (no cookies used)."
+  },
+  {
+   "name": "ios_producer",
+   "status": "OK",
+   "audio_itags": [
+    139,
+    140
+   ],
+   "plain_url": true,
+   "range_get_http": 206,
+   "notes": "OK with plain signed URLs on every tested video (no PO token, no JS); range GET (bytes=0-262143) returns 206 with full 256 KB; recommended. range GET body size: 262144 bytes."
+  }
+ ],
+ "recommended_client": "ios_producer",
+ "download_bytes_per_sec": 13744215,
+ "commands_run": [
+  "ytspike search 'Juan Luis Guerra'",
+  "ytspike mix v0ckuv1xBm0",
+  "ytspike audio v0ckuv1xBm0",
+  "ytspike audio 1yfDOF3p_rs",
+  "ytspike audio MgsdDfdGdHc",
+  "ytspike audio --clients ios_producer --speed-itag 140 1yfDOF3p_rs",
+  "ytspike audio --clients ios_producer --speed-itag 140 v0ckuv1xBm0",
+  "ytspike audio --clients ios_producer --speed-itag 140 MgsdDfdGdHc"
+ ],
+ "open_issues": [
+  "ios_producer's audio bitrates may be limited (only itags 139/140, no Opus 251) and its purpose is a producer app; stability over time is unproven.",
+  "Full download (no Range header) is throttled to ~32221 bytes/s by the server: assistants must send a Range header (or use ranged GETs) when streaming.",
+  "Small percentage of videos may still need testing for age/geo restrictions with ios_producer.",
+  "Result is per one server region (US-ish); yt-dlp recommends multiple clients with fallback."
+ ]
+}

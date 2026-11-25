@@ -1,0 +1,63 @@
+--- a/src/runtime/netpoll_epoll.go
++++ b/src/runtime/netpoll_epoll.go
+@@ -14,7 +14,8 @@
+ 
+ var (
+ 	epfd           int32         = -1 // epoll descriptor
+-	netpollEventFd uintptr            // eventfd for netpollBreak
++	netpollEventFd uintptr            // eventfd for netpollBreak (pipe write end on kernels without eventfd)
++	netpollBreakRd int32         = -1 // pipe read end, used only when eventfd is missing (LibreEcho patch)
+ 	netpollWakeSig atomic.Uint32      // used to avoid duplicate calls of netpollBreak
+ )
+ 
+@@ -41,15 +42,22 @@
+ 		throw("runtime: netpollinit failed")
+ 	}
+ 	efd, errno := linux.Eventfd(0, linux.EFD_CLOEXEC|linux.EFD_NONBLOCK)
++	pollfd := efd
+ 	if errno != 0 {
+-		println("runtime: eventfd failed with", errno)
+-		throw("runtime: eventfd failed")
++		// LibreEcho patch: old kernels built without eventfd (Echo Dot 2nd gen).
++		// Fall back to the non-blocking pipe Go 1.21 used for netpollBreak.
++		r, w, perr := nonblockingPipe()
++		if perr != 0 {
++			println("runtime: eventfd failed with", errno, "and pipe failed with", -perr)
++			throw("runtime: netpollinit failed")
++		}
++		netpollBreakRd, efd, pollfd = r, w, r
+ 	}
+ 	ev := linux.EpollEvent{
+ 		Events: linux.EPOLLIN,
+ 	}
+ 	netpollPackData(&ev, nil, 0)
+-	errno = linux.EpollCtl(epfd, linux.EPOLL_CTL_ADD, efd, &ev)
++	errno = linux.EpollCtl(epfd, linux.EPOLL_CTL_ADD, pollfd, &ev)
+ 	if errno != 0 {
+ 		println("runtime: epollctl failed with", errno)
+ 		throw("runtime: epollctl failed")
+@@ -58,7 +66,7 @@
+ }
+ 
+ func netpollIsPollDescriptor(fd uintptr) bool {
+-	return fd == uintptr(epfd) || fd == netpollEventFd
++	return fd == uintptr(epfd) || fd == netpollEventFd || (netpollBreakRd >= 0 && fd == uintptr(netpollBreakRd))
+ }
+ 
+ func netpollopen(fd uintptr, pd *pollDesc) uintptr {
+@@ -164,8 +172,13 @@
+ 				// integer if blocking.
+ 				// Since EFD_SEMAPHORE was not specified,
+ 				// the eventfd counter will be reset to 0.
+-				var one uint64
+-				read(int32(netpollEventFd), noescape(unsafe.Pointer(&one)), int32(unsafe.Sizeof(one)))
++				if netpollBreakRd >= 0 {
++					var buf [16]byte
++					read(netpollBreakRd, noescape(unsafe.Pointer(&buf[0])), int32(len(buf)))
++				} else {
++					var one uint64
++					read(int32(netpollEventFd), noescape(unsafe.Pointer(&one)), int32(unsafe.Sizeof(one)))
++				}
+ 				netpollWakeSig.Store(0)
+ 			}
+ 			continue
