@@ -61,3 +61,7 @@ Secrets stay on the device under `/data/libreecho/`. Nothing in this repository 
 
 Pending work: YouTube playlists from the Echo, a self-healing check for failures, the "Oye Mia"
 wake word, a reboot test and a security review. See the feature log for details.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
