@@ -1,6 +1,8 @@
 # Build output
 puente/puente-armv7
 puente/puente
+vigia/vigia-armv7
+vigia/vigia
 
 # Installer logs and evidence (device serial, IPs, host details)
 *.log

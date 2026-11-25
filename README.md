@@ -32,6 +32,8 @@ device user, and streams the reply back as SSE.
 |------|----------|
 | `puente/` | Bridge source and tests |
 | `odd/tasks/puente-acciones.md` | Feature log: specs, tasks, decisions and evidence |
+| `vigia/` | Failure watcher: checks services, the bridge and its log every 30 s, records events and alerts the phone via ntfy |
+| `skills/libreecho-vigia/` | Claude Code skill to diagnose failures, reuse known fixes and search GitHub |
 | `wakeword/` | Google Colab prompt to train the "Oye Mia" wake word with openWakeWord |
 | `run-one-shot.sh` | Wrapper for the LibreEcho one-shot installer |
 
@@ -57,10 +59,23 @@ Main flags: `-upstream` (OpenAI-compatible URL), `-device` (LibreEcho web API), 
 
 Secrets stay on the device under `/data/libreecho/`. Nothing in this repository holds a key.
 
+## Failure watcher (vigia)
+
+`vigia` runs on the Echo as a local service. Every 30 s it checks the local services, supervisor
+restarts, the main daemons, the bridge `/health`, the cloud voice port, free space on `/data`
+and new error lines in the bridge log. A lasting failure is rechecked after 90 s before it
+alerts; the same failure alerts at most once per hour. Events go to
+`/data/libreecho/local/vigia/events.jsonl`; alerts go to an ntfy topic set in
+`/data/libreecho/local/vigia.conf` (`topic=...`, kept on the device).
+
+```sh
+vigia -once                 # run the checks once, print problems, exit 1 if any
+vigia -test-alert "texto"   # send a test notification
+```
+
 ## Status
 
-Pending work: YouTube playlists from the Echo, a self-healing check for failures, the "Oye Mia"
-wake word, a reboot test and a security review. See the feature log for details.
+Pending work: YouTube playlists from the Echo, the "Oye Mia" wake word and a security review. See the feature log for details.
 
 ## License
 
