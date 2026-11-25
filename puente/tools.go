@@ -32,7 +32,7 @@ var toolSpecs = json.RawMessage(`[
 {"type":"function","function":{"name":"play_radio","description":"Play music or a configured radio station. Use an empty station when the user just asks for music or radio.","parameters":{"type":"object","properties":{"station":{"type":"string","description":"Station name, or empty"}}}}},
 {"type":"function","function":{"name":"media_control","description":"Control current playback.","parameters":{"type":"object","properties":{"action":{"type":"string","enum":["pause","resume","next","previous"]}},"required":["action"]}}},
 {"type":"function","function":{"name":"set_do_not_disturb","description":"Turn do-not-disturb mode on or off.","parameters":{"type":"object","properties":{"enabled":{"type":"boolean"}},"required":["enabled"]}}},
-{"type":"function","function":{"name":"daily_text","description":"Read the daily Bible text (texto diario, Examinemos las Escrituras) from wol.jw.org.","parameters":{"type":"object","properties":{"date":{"type":"string","description":"YYYY-MM-DD; omit for today. Compute it from the context date for mañana/ayer."}}}}},
+{"type":"function","function":{"name":"daily_text","description":"Read the daily Bible text (texto diario, Examinemos las Escrituras) from wol.jw.org.","parameters":{"type":"object","properties":{"day":{"type":"string","enum":["hoy","mañana","ayer","pasado mañana","anteayer"],"description":"Relative day. Always use this for hoy, mañana, ayer, pasado mañana or anteayer; the device computes the date."},"date":{"type":"string","description":"YYYY-MM-DD, only for a specific calendar date the user names (e.g. el 3 de diciembre). Omit both for today."}}}}},
 {"type":"function","function":{"name":"play_jw_music","description":"Play a music section from jw.org in random order, e.g. 'reproduce desde jw.org Música internacional'.","parameters":{"type":"object","properties":{"collection":{"type":"string","enum":["Música internacional","Canciones originales","Cantemos con gozo a Jehová (para las reuniones)","Cantemos con gozo a Jehová (cantadas)","Cantemos con gozo a Jehová (instrumental)","Cantemos a Jehová (coro y orquesta)","Canciones para niños","Melodías del Reino"]}},"required":["collection"]}}},
 {"type":"function","function":{"name":"now_playing","description":"Say which song is playing now.","parameters":{"type":"object","properties":{}}}},
 {"type":"function","function":{"name":"sleep_sounds","description":"Play relaxing background noise to sleep or concentrate.","parameters":{"type":"object","properties":{"sound":{"type":"string","enum":["white","pink","brown","heartbeat"],"description":"Default brown"},"minutes":{"type":"integer","description":"How long, 0 = until stopped"}}}}}
@@ -100,7 +100,7 @@ func Exec(api API, name, args string) string {
 		}
 		return "Listo, desactivé el modo no molestar."
 	case "daily_text":
-		return dailyText(strArg(a, "date"))
+		return dailyText(strArg(a, "day"), strArg(a, "date"))
 	case "play_jw_music":
 		return playJWMusic(strArg(a, "collection"), true)
 	case "now_playing":
@@ -601,12 +601,22 @@ func (s *Services) today() time.Time {
 	return now().In(loc)
 }
 
-func dailyText(date string) string {
+// relativeDays maps spoken relative days to day offsets.
+var relativeDays = map[string]int{
+	"anteayer": -2, "antier": -2, "ayer": -1, "hoy": 0,
+	"mañana": 1, "manana": 1, "pasado mañana": 2, "pasado manana": 2,
+}
+
+// dailyText reads the daily text. A relative day wins over a date,
+// because the model often miscomputes dates from the context line.
+func dailyText(day, date string) string {
 	if svc.JW == nil {
 		return "Todavía no sé leer el texto diario."
 	}
 	d := svc.today()
-	if date != "" {
+	if off, ok := relativeDays[strings.ToLower(strings.TrimSpace(day))]; ok {
+		d = d.AddDate(0, 0, off)
+	} else if date != "" {
 		t, err := time.ParseInLocation("2006-01-02", date, d.Location())
 		if err != nil {
 			return "No entendí la fecha del texto."

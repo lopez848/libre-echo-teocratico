@@ -189,6 +189,39 @@ func TestDailyTextToolUsesLocalDate(t *testing.T) {
 	}
 }
 
+func TestDailyTextToolRelativeDay(t *testing.T) {
+	page, _ := os.ReadFile("testdata/wol-2026-11-25.html")
+	var path string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		w.Write(page)
+	}))
+	defer srv.Close()
+	old := *svc
+	defer func() { *svc = old }()
+	loc, _ := time.LoadLocation("America/Chicago")
+	svc.JW = &JW{HTTP: srv.Client(), WOLBase: srv.URL}
+	svc.Location = loc
+	// 05:30 UTC on the 26th is 23:30 on the 25th in Chicago.
+	svc.Now = func() time.Time { return time.Date(2026, 11, 26, 5, 30, 0, 0, time.UTC) }
+	cases := []struct{ args, path, prefix string }{
+		{`{"day":"mañana"}`, "/es/wol/h/r4/lp-s/2026/11/26", "Jueves 26 de noviembre."},
+		{`{"day":"ayer"}`, "/es/wol/h/r4/lp-s/2026/11/24", "Martes 24 de noviembre."},
+		{`{"day":"hoy"}`, "/es/wol/h/r4/lp-s/2026/11/25", "Miércoles 25 de noviembre."},
+		// day wins over a wrong date computed by the model.
+		{`{"day":"mañana","date":"2026-11-24"}`, "/es/wol/h/r4/lp-s/2026/11/26", "Jueves 26 de noviembre."},
+		// an explicit date still works.
+		{`{"date":"2026-11-24"}`, "/es/wol/h/r4/lp-s/2026/11/24", "Martes 24 de noviembre."},
+	}
+	for _, c := range cases {
+		path = ""
+		got := Exec(&fakeAPI{}, "daily_text", c.args)
+		if path != c.path || !strings.HasPrefix(got, c.prefix) {
+			t.Errorf("%s: path=%q got=%.60q", c.args, path, got)
+		}
+	}
+}
+
 func TestMatchJWCollection(t *testing.T) {
 	cases := map[string]string{
 		"Música internacional":                            "AudioInternationalMusic",

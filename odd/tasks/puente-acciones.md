@@ -21,7 +21,9 @@ Branch: none (not a git repo; deployed via adb). Test runner: `go test ./...` in
 - T6 S7 YouTube playlists from the Echo with a Go library (artist-only lists, similar songs after a specific song, learn from plays/skips) — pending
 - T7 S8 Self-healing skill: verify after every failure, alert to fix it, search GitHub for an existing fix first — pending
 - T8 Install oye_mia.onnx as second wake word after the user trains it in Colab — waiting on user
-- T9 Reboot test of the Echo (voice-es, puente, tts-local come back) — pending
+- T9 Reboot test of the Echo (voice-es, puente, tts-local come back) — DONE 2026-11-25 (uptime 35 min: voice-es exited:0, puente and tts-local running, overrides rewritten, time/timer answers OK)
+- T10 Daily text for relative days computed by the bridge (`day` param) — DONE 2026-11-25 (RED->GREEN TestDailyTextToolRelativeDay, deployed, 5 live phrases OK)
+- T11 Model wrote `cancelar_timers{}` as text (Spanish tool name) and the timer was not cancelled — pending
 
 ## Log
 - L1 2026-11-24 user: "suena bien, pero quiero q haga mas cosas porq eso nada mas" then "si haslo".
@@ -41,3 +43,5 @@ Branch: none (not a git repo; deployed via adb). Test runner: `go test ./...` in
 - L15 Done: daily_text (live, user confirmed it sounded great); play_jw_music for all 8 sections, always shuffled, via BusPlayer (radiod cannot play 44.1 kHz MP3); now_playing/next/stop live-tested; SSE chunking fix; Colab prompt at wakeword/prompt-colab-oye-mia.md. 33 tests green. Pending: YouTube playlists (decision: where the extractor runs), wake word install after Colab, reboot test, Gentle Shell review.
 - L16 2026-11-25 user: "me gusta todo desde el echo con una libreria de go, hariamos una skill q apreda de errores y tenga una verificacion cada ves q algo falle y q cuando falle alerte para arreglarlo siempre buscnado en github si ya tiene solucion ese problema. pero como necesito reiniciar parare aqui y regresamos alreiniciar"
 - L17 Paused by the user to reboot. Echo state: all services running (voice-es once, puente with -wyoming, tts-local), -v off. Resume with T6/T7 design (open questions: Go YouTube lib compatible with go1.21 + AAC/Opus decode in pure Go; how the alert reaches the user). Scratchpad may be wiped by the reboot: nothing needed lives only there (bridge creds are on the device; NVIDIA key file deleted).
+- L18 2026-11-25 T9: after reboot all local services came back on their own. /assistant/respond answered time and set a timer; "cancela los temporizadores" returned text "cancelar_timers{}" and did nothing (test timer deleted by hand before ringing). Long daily-text replies make /assistant/respond return "ChatGPT response failed" while the voice still plays.
+- L19 2026-11-25 user: "pedi el texto del dia de mañana y me dio otra fecha arreglar". Cause: the model computed the date from the context line. Fix: daily_text takes `day` (hoy, mañana, ayer, pasado mañana, anteayer); the bridge adds the offset to the local date and `day` wins over `date`. Binary backup on device: services/puente/puente.bak-20261125.
