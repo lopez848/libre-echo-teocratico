@@ -58,6 +58,9 @@ type timerEntry struct {
 
 // Exec runs one tool call and returns the sentence to speak.
 func Exec(api API, name, args string) string {
+	if n := resolveTool(name); n != "" {
+		name = n
+	}
 	var a map[string]any
 	if strings.TrimSpace(args) != "" {
 		if err := json.Unmarshal([]byte(args), &a); err != nil {
@@ -134,6 +137,36 @@ var toolNames = func() map[string]bool {
 }()
 
 func knownTool(name string) bool { return toolNames[name] }
+
+// toolWords translates Spanish words the model sometimes uses in tool
+// names (e.g. "cancelar_timers") to the words of the real tool names.
+var toolWords = map[string]string{
+	"cancelar": "cancel", "borrar": "cancel", "eliminar": "cancel", "quitar": "cancel",
+	"listar": "list", "lista": "list", "ver": "list",
+	"poner": "set", "fijar": "set", "establecer": "set", "configurar": "set", "crear": "set",
+	"cambiar": "change", "subir": "change", "bajar": "change",
+	"temporizador": "timer", "temporizadores": "timers", "timer": "timer", "timers": "timers",
+	"alarma": "alarm", "alarmas": "alarms", "recordatorio": "reminder", "recordatorios": "reminders",
+	"volumen": "volume", "parar": "stop", "detener": "stop",
+}
+
+// resolveTool returns the real tool name for name, translating Spanish
+// words when needed. It returns "" when nothing matches a real tool.
+func resolveTool(name string) string {
+	if knownTool(name) {
+		return name
+	}
+	parts := strings.Split(strings.ToLower(name), "_")
+	for i, w := range parts {
+		if t, ok := toolWords[w]; ok {
+			parts[i] = t
+		}
+	}
+	if n := strings.Join(parts, "_"); knownTool(n) {
+		return n
+	}
+	return ""
+}
 
 var bareKey = regexp.MustCompile(`([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:`)
 

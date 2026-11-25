@@ -23,7 +23,7 @@ Branch: none (not a git repo; deployed via adb). Test runner: `go test ./...` in
 - T8 Install oye_mia.onnx as second wake word after the user trains it in Colab — waiting on user
 - T9 Reboot test of the Echo (voice-es, puente, tts-local come back) — DONE 2026-11-25 (uptime 35 min: voice-es exited:0, puente and tts-local running, overrides rewritten, time/timer answers OK)
 - T10 Daily text for relative days computed by the bridge (`day` param) — DONE 2026-11-25 (RED->GREEN TestDailyTextToolRelativeDay, deployed, 5 live phrases OK)
-- T11 Model wrote `cancelar_timers{}` as text (Spanish tool name) and the timer was not cancelled — pending
+- T11 Model wrote `cancelar_timers{}` as text (Spanish tool name) and the timer was not cancelled — DONE 2026-11-25 (resolveTool translates Spanish words; RED->GREEN TestTextToolCallForms + TestExecResolvesSpanishToolName; deployed; 3 live set/cancel rounds OK)
 
 ## Log
 - L1 2026-11-24 user: "suena bien, pero quiero q haga mas cosas porq eso nada mas" then "si haslo".
@@ -45,3 +45,4 @@ Branch: none (not a git repo; deployed via adb). Test runner: `go test ./...` in
 - L17 Paused by the user to reboot. Echo state: all services running (voice-es once, puente with -wyoming, tts-local), -v off. Resume with T6/T7 design (open questions: Go YouTube lib compatible with go1.21 + AAC/Opus decode in pure Go; how the alert reaches the user). Scratchpad may be wiped by the reboot: nothing needed lives only there (bridge creds are on the device; NVIDIA key file deleted).
 - L18 2026-11-25 T9: after reboot all local services came back on their own. /assistant/respond answered time and set a timer; "cancela los temporizadores" returned text "cancelar_timers{}" and did nothing (test timer deleted by hand before ringing). Long daily-text replies make /assistant/respond return "ChatGPT response failed" while the voice still plays.
 - L19 2026-11-25 user: "pedi el texto del dia de mañana y me dio otra fecha arreglar". Cause: the model computed the date from the context line. Fix: daily_text takes `day` (hoy, mañana, ayer, pasado mañana, anteayer); the bridge adds the offset to the local date and `day` wins over `date`. Binary backup on device: services/puente/puente.bak-20261125.
+- L20 2026-11-25 T11: resolveTool maps Spanish words in tool names (cancelar, borrar, temporizadores, volumen…) to real tool names, used by textToolCall and Exec; unknown names still rejected. Live: "cancela los temporizadores", "borra el temporizador", "quita todos los temporizadores" each cancelled the timer. Test gotcha: logging in as the bridge user from a script invalidates the bridge token (and vice versa), so test scripts must log in before each call.

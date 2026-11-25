@@ -236,7 +236,8 @@ func textToolCall(content string) (string, string, bool) {
 			Name      string          `json:"name"`
 			Arguments json.RawMessage `json:"arguments"`
 		}
-		if json.Unmarshal([]byte(c), &j) == nil && knownTool(j.Name) {
+		if json.Unmarshal([]byte(c), &j) == nil && resolveTool(j.Name) != "" {
+			j.Name = resolveTool(j.Name)
 			args := string(j.Arguments)
 			var str string
 			if json.Unmarshal(j.Arguments, &str) == nil {
@@ -247,10 +248,14 @@ func textToolCall(content string) (string, string, bool) {
 		return "", "", false
 	}
 	m := textCall.FindStringSubmatch(c)
-	if m == nil || !knownTool(m[1]) {
+	if m == nil {
 		return "", "", false
 	}
-	return m[1], m[2], true
+	name := resolveTool(m[1])
+	if name == "" {
+		return "", "", false
+	}
+	return name, m[2], true
 }
 
 func dedupe(p []string) string {

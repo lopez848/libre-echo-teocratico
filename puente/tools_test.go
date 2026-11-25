@@ -183,6 +183,11 @@ func TestTextToolCallForms(t *testing.T) {
 		"list_timers":                    "list_timers|",
 		`set_volume({"level":30})`:       `set_volume|{"level":30}`,
 		`{"name":"stop","arguments":{}}`: "stop|{}",
+		"cancelar_timers{}":              "cancel_timers|{}",
+		"cancelar_temporizadores{}":      "cancel_timers|{}",
+		"listar_temporizadores":          "list_timers|",
+		`poner_volumen({"level":30})`:    `set_volume|{"level":30}`,
+		"cancelar_alarmas{}":             "cancel_alarms|{}",
 	}
 	for in, want := range cases {
 		n, a, ok := textToolCall(in)
@@ -190,10 +195,18 @@ func TestTextToolCallForms(t *testing.T) {
 			t.Errorf("textToolCall(%q)=%q,%q,%v want %q", in, n, a, ok, want)
 		}
 	}
-	for _, in := range []string{"La capital es Santiago.", "hola", "unknown_tool{}"} {
+	for _, in := range []string{"La capital es Santiago.", "hola", "unknown_tool{}", "cancelar_todo{}"} {
 		if _, _, ok := textToolCall(in); ok {
 			t.Errorf("%q must not be a tool call", in)
 		}
+	}
+}
+
+func TestExecResolvesSpanishToolName(t *testing.T) {
+	f := &fakeAPI{responses: map[string]string{"GET /timers": `{"timers":[{"id":1,"kind":"countdown","label":""}]}`}}
+	got := Exec(f, "cancelar_temporizadores", `{}`)
+	if f.find("DELETE", "/timers/1") == nil || got != "Listo, cancelé el temporizador." {
+		t.Fatalf("calls=%+v got=%q", f.calls, got)
 	}
 }
 
