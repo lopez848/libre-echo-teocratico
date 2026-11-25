@@ -1,0 +1,43 @@
+# Feature: puente-acciones (Spanish voice actions for LibreEcho biscuit)
+Objective: a Go bridge on the Echo (local service) that sits between agentd and NVIDIA, adds tool calling and executes device actions via the local web API.
+Branch: none (not a git repo; deployed via adb). Test runner: `go test ./...` in `puente/` plus live API probes. Delivery: exception-ok (device config, no PR).
+
+## Specs
+- S1 "quiero q haga mas cosas porq eso nada mas" / "si haslo": the assistant performs real actions in Spanish: timers, alarms, reminders, volume, radio, stop, DND, light, time, weather (as proposed list).
+- S2 Bridge listens on 127.0.0.1, is agentd's openai-compatible base_url, replies as SSE stream in Spanish.
+- S3 Bridge uses its own device user (not the owner's).
+- S4 If the bridge fails, the supervisor relaunches it; rollback = restore base_url in secrets/openai-codex.json.
+- S5 Constraints: no bootloader/partitions, no reflash, backup before touching config.
+- S7 "lo que me encantaria de youtube que funcione al estilo de lista de reproduccion q al pedir cancionjes de unn artista reproduca solo de ese y si pido una cancon en especifico reprodusca similares q se parencan a mis gustos mientra vala aprendiendo de mi o algo asi." Decision 2026-11-25: "me gusta todo desde el echo con una libreria de go". Constraints: device needs go1.21 toolchain; radiod plays only 48 kHz MP3 (use BusPlayer); YouTube audio is AAC/Opus, so decoding must happen in the bridge.
+- S8 "hariamos una skill q apreda de errores y tenga una verificacion cada ves q algo falle y q cuando falle alerte para arreglarlo siempre buscnado en github si ya tiene solucion ese problema."
+- S6 "si crees necesario crea una skill con todo lo que necesites saber de este apareto para no estar dando vueltas"
+
+## Tasks
+- T1 S2 verify agentd accepts http base_url — inline — DONE (request captured; agentd forwards Bearer key and injects date/time line)
+- T2 S1,S2 Go bridge + unit tests — inline — DONE (14 tests green with go1.21.13; tests written alongside code, no separate RED observed)
+- T3 S3,S4 device user, local service, switch base_url, live tests — inline — DONE (live battery passed; test artifacts cleaned)
+- T4 S6 device skill — inline — DONE (~/.claude/skills/libreecho-biscuit)
+- T5 Gentle Shell review (owner rule for credential/deploy changes) — pending
+- T6 S7 YouTube playlists from the Echo with a Go library (artist-only lists, similar songs after a specific song, learn from plays/skips) — pending
+- T7 S8 Self-healing skill: verify after every failure, alert to fix it, search GitHub for an existing fix first — pending
+- T8 Install oye_mia.onnx as second wake word after the user trains it in Colab — waiting on user
+- T9 Reboot test of the Echo (voice-es, puente, tts-local come back) — pending
+
+## Log
+- L1 2026-11-24 user: "suena bien, pero quiero q haga mas cosas porq eso nada mas" then "si haslo".
+- L2 agentd request shape: POST /v1/chat/completions {model, messages:[system(+ "The current local date and time is ... The device is in the Kitchen."), user], stream:true}, headers Authorization: Bearer <key>, Accept: text/event-stream.
+- L3 API bodies: POST /timers {seconds,label}; POST /alarms and /reminders {time:"HH:MM",label,days?: ""|daily|weekdays|weekends}; DELETE /timers/<id>, /alarms/<id>; POST /timers/dismiss; PUT /audio {volume}; POST /integrations/radio/play {word} (no stations configured); POST /playback/transport {action}; PUT /dnd {enabled}; POST/DELETE /audio/noise; POST /auth/users {username,password,password_confirm}. /light is an ambient sensor (not a lamp). Device timezone is UTC.
+- L4 Go >=1.22 crashes on device ("runtime: eventfd failed", kernel without eventfd): build with GOTOOLCHAIN=go1.21.13.
+- L5 2026-11-24 user: "el aparato a hablar habla raro por ejemplo para decir "en que te puedo ayudar" "dice en qu é asentiada te puedo ayudar"". Reproduced on device with test ttsd + STT loop ("en cuba y acentuada"); NFD-decomposed vowels fix it ("en que te puedo ayudar", "la canción está aquí"). Bridge applies Speakable to every reply.
+- L6 Live results: timers, list, cancel, alarm weekdays, cancel alarm, reminder, volume abs/relative, DND on/off, time (local after timezone set to America/Chicago), white noise 10 min, "para". Radio has no stations configured. Bolt emits text tool calls -> textToolCall + relaxJSON. Bridge RSS ~4.4 MB, turns 0.25-0.7 s.
+- L7 Next: optional faster TTS model (RTF ~2.5 now), radio stations, weather needs home location, Gentle Shell review (T5).
+- L8 2026-11-24 user: "y claro q quiero una vos mas rapida, y Estoy en <home city>, no se si www.jw.org tiene una emisora pero si la tienen al quiero." / "existe una vos venezolana?" / "esta palabra "Fahrenheit" la pronuncio rara." / "le podemos colocar reconocimiento de vos?"
+- L9 Weather: agent.json home_location "<home city>", <lat>,<lon> (backup agent.json.bak-preweather); answers in Fahrenheit. Bridge respells Fahrenheit -> "fárenjait", °F/°C (deployed, 16 tests green).
+- L10 TTS benchmark on device (same 89-char sentence, 4 threads): claude-high 12 s for 5.5 s audio; ald-medium 13 s/5.3 s; ald-x_low 9 s/4.9 s and worse intelligibility. CPU-bound: no local Piper voice is real-time. Candidates installed at voice-es/tts-ald-{medium,xlow} (unused). No es_VE Piper voice exists. jw.org has no 24h audio radio (24h streaming channels are video; audio on demand).
+- L11 2026-11-24 user: "si escuchemos q tal se oye?" / "si hay mas voces me gustaria escucharlas!" / "me gusto mia" / "cuando pedi musica me dijo "que tipo de musica o estacion (hizo una pausa) quieres" se sintio rara la pausa muy larga".
+- L12 Cloud voice deployed: Wyoming server in bridge + NVIDIA Magpie Mia; ttsd in Wyoming mode via CONFIG override; tts-local Piper fallback verified by forcing a cloud failure (local voice spoke the full sentence). Fixed fallback "malformed request" (ttsd 32-bit ids). Prompt now feminine (Mia) and "pon música" calls play_radio with empty station. 22 tests green. Live: weather answer in 0.6 s + TTS ~0.8 s.
+- L13 2026-11-25 user: "oye mia, pero quiero entrenarlo desde Google Colab dame el pronmt para muse, lo que me encantaria de youtube que funcione al estilo de lista de reproduccion q al pedir cancionjes de unn artista reproduca solo de ese y si pido una cancon en especifico reprodusca similares q se parencan a mis gustos mientra vala aprendiendo de mi o algo asi. sobre jw quiero poder reproducir por ejempro Canciones originales como no estoy pidiendo una en especifico reprodusca todas, si pido el texto del dia https://wol.jw.org/es/wol/h/r4/lp-s/2026/11/25 me entiendes?"
+- L14 2026-11-25 user: "https://www.jw.org/es/biblioteca/m%C3%BAsica-canciones/ en esta web estan todas las canciones q tenenmos donde al abrir se puede reproducir todo o de manera aleatoria quisiera poder tener solo aleatoria de la q sea q escoja por ejemplo "oye mia reproducir desde jw.org Música internacional" ... el texto diario lo escuche cuando se reprodujo esta genial mejor q la alexa orijinal desde la skill de alexa de la jw.org"
+- L15 Done: daily_text (live, user confirmed it sounded great); play_jw_music for all 8 sections, always shuffled, via BusPlayer (radiod cannot play 44.1 kHz MP3); now_playing/next/stop live-tested; SSE chunking fix; Colab prompt at wakeword/prompt-colab-oye-mia.md. 33 tests green. Pending: YouTube playlists (decision: where the extractor runs), wake word install after Colab, reboot test, Gentle Shell review.
+- L16 2026-11-25 user: "me gusta todo desde el echo con una libreria de go, hariamos una skill q apreda de errores y tenga una verificacion cada ves q algo falle y q cuando falle alerte para arreglarlo siempre buscnado en github si ya tiene solucion ese problema. pero como necesito reiniciar parare aqui y regresamos alreiniciar"
+- L17 Paused by the user to reboot. Echo state: all services running (voice-es once, puente with -wyoming, tts-local), -v off. Resume with T6/T7 design (open questions: Go YouTube lib compatible with go1.21 + AAC/Opus decode in pure Go; how the alert reaches the user). Scratchpad may be wiped by the reboot: nothing needed lives only there (bridge creds are on the device; NVIDIA key file deleted).

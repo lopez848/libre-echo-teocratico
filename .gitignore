@@ -1,0 +1,20 @@
+# Build output
+puente/puente-armv7
+puente/puente
+
+# Installer logs and evidence (device serial, IPs, host details)
+*.log
+*.tar.gz
+libreecho-installer-evidence/
+
+# Third-party firmware and downloads
+*.zip
+amonet.html
+
+# Device config backups and local secrets
+*.bak*
+*.creds
+secrets/
+
+# Local tooling
+.nodeterm/
