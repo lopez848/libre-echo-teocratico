@@ -19,8 +19,16 @@ import (
 // recheck, so they alert right away.
 type Problem struct {
 	Key     string
-	Text    string
+	Text    string // goes to the phone: never raw log content
+	Detail  string // stays in the local event log; defaults to Text
 	Instant bool
+}
+
+func (p Problem) detail() string {
+	if p.Detail != "" {
+		return p.Detail
+	}
+	return p.Text
 }
 
 // Alert is a message for the owner's phone.
@@ -145,11 +153,27 @@ func (s *logScanner) Scan() []string {
 	return strings.Split(string(b[:end]), "\n")
 }
 
-// logPatterns are the bridge's error lines (puente logf calls).
+// logPatterns are the bridge's error lines (puente logf calls). Log lines
+// can carry what the owner said, so alerts only name the kind of error and
+// the full line stays in the on-device event log.
 var logPatterns = []string{
 	"upstream error:", "device error:", "daily text:", "jw collection:",
 	"busplayer:", "wyoming:", "cloud tts failed", "local voice failed",
 	"player:", "bad tool args", "panic:",
+}
+
+var logLabels = map[string]string{
+	"upstream error":     "falló la llamada al modelo de IA",
+	"device error":       "falló una orden al Echo",
+	"daily text":         "no se pudo traer el texto diario",
+	"jw collection":      "no se pudo traer la música de jw.org",
+	"busplayer":          "falló la reproducción de audio",
+	"wyoming":            "falló la voz de la nube",
+	"cloud tts failed":   "falló la voz de la nube y usó la voz local",
+	"local voice failed": "falló la voz local",
+	"player":             "falló el reproductor",
+	"bad tool args":      "el modelo mandó una orden mal formada",
+	"panic":              "el puente se cayó (panic)",
 }
 
 func logProblem(line string) (Problem, bool) {
@@ -166,8 +190,9 @@ func logProblem(line string) (Problem, bool) {
 			if len(msg) > 200 {
 				msg = msg[:200]
 			}
-			key := "log:" + strings.TrimSuffix(p, ":")
-			return Problem{Key: key, Text: "Error en el puente: " + msg, Instant: true}, true
+			kind := strings.TrimSuffix(p, ":")
+			text := "Error en el puente: " + logLabels[kind] + ". El detalle está en el registro del Echo."
+			return Problem{Key: "log:" + kind, Text: text, Detail: msg, Instant: true}, true
 		}
 	}
 	return Problem{}, false
@@ -177,6 +202,7 @@ type pending struct {
 	first   time.Time
 	text    string
 	alerted bool
+	muted   bool // reached the recheck inside the rate window: no alerts
 }
 
 // watcher turns check results into alerts: state problems are rechecked
@@ -229,10 +255,10 @@ func (w *watcher) Tick(now time.Time, probs []Problem) []Alert {
 	current := map[string]bool{}
 	for _, p := range probs {
 		if p.Instant {
-			w.event(now, p.Key, "detected", p.Text)
+			w.event(now, p.Key, "detected", p.detail())
 			if w.limited(now, p.Key) {
 				w.muted[p.Key]++
-				w.event(now, p.Key, "muted", p.Text)
+				w.event(now, p.Key, "muted", p.detail())
 				continue
 			}
 			out = append(out, w.send(now, p.Key, "Falla: "+p.Text, false))
@@ -242,11 +268,17 @@ func (w *watcher) Tick(now time.Time, probs []Problem) []Alert {
 		pd, ok := w.pend[p.Key]
 		if !ok {
 			w.pend[p.Key] = &pending{first: now, text: p.Text}
-			w.event(now, p.Key, "detected", p.Text)
+			w.event(now, p.Key, "detected", p.detail())
 			continue
 		}
 		if !pd.alerted && now.Sub(pd.first) >= w.recheck {
 			pd.alerted = true
+			if w.limited(now, p.Key) {
+				pd.muted = true
+				w.muted[p.Key]++
+				w.event(now, p.Key, "muted", pd.text)
+				continue
+			}
 			out = append(out, w.send(now, p.Key, "Sigue fallando: "+pd.text, false))
 		}
 	}
@@ -261,6 +293,10 @@ func (w *watcher) Tick(now time.Time, probs []Problem) []Alert {
 		}
 		pd := w.pend[k]
 		delete(w.pend, k)
+		if pd.muted {
+			w.event(now, k, "recovered", "Se recuperó (aviso silenciado): "+pd.text)
+			continue
+		}
 		if pd.alerted {
 			out = append(out, w.send(now, k, "Ya funciona otra vez. El problema era: "+pd.text, true))
 			continue
@@ -302,6 +338,29 @@ func (n *ntfy) Send(a Alert) error {
 	io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode/100 != 2 {
 		return fmt.Errorf("ntfy answered %s", resp.Status)
+	}
+	return nil
+}
+
+// outbox keeps alerts that could not be sent (no network, ntfy down) and
+// retries them, oldest first, on the next flush. It holds the newest Max.
+type outbox struct {
+	Max     int
+	pending []Alert
+}
+
+// Flush queues the new alerts and sends everything in order, stopping at
+// the first failure so the rest waits for the next flush.
+func (o *outbox) Flush(send func(Alert) error, alerts []Alert) []error {
+	o.pending = append(o.pending, alerts...)
+	if o.Max > 0 && len(o.pending) > o.Max {
+		o.pending = o.pending[len(o.pending)-o.Max:]
+	}
+	for len(o.pending) > 0 {
+		if err := send(o.pending[0]); err != nil {
+			return []error{err}
+		}
+		o.pending = o.pending[1:]
 	}
 	return nil
 }

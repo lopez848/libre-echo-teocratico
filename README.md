@@ -64,9 +64,11 @@ Secrets stay on the device under `/data/libreecho/`. Nothing in this repository 
 `vigia` runs on the Echo as a local service. Every 30 s it checks the local services, supervisor
 restarts, the main daemons, the bridge `/health`, the cloud voice port, free space on `/data`
 and new error lines in the bridge log. A lasting failure is rechecked after 90 s before it
-alerts; the same failure alerts at most once per hour. Events go to
-`/data/libreecho/local/vigia/events.jsonl`; alerts go to an ntfy topic set in
-`/data/libreecho/local/vigia.conf` (`topic=...`, kept on the device).
+alerts; the same failure alerts at most once per hour, including a service that keeps flapping.
+Events go to `/data/libreecho/local/vigia/events.jsonl`; alerts go to an ntfy topic set in
+`/data/libreecho/local/vigia.conf` (`topic=...`, kept on the device). Bridge log errors only send
+the kind of error to the phone; the full line, which may contain what was said, stays in the
+event log. Alerts that fail to send (no network) are queued (up to 20) and retried every check.
 
 ```sh
 vigia -once                 # run the checks once, print problems, exit 1 if any

@@ -155,15 +155,16 @@ func main() {
 	w := newWatcher(*recheck, *rate)
 	w.OnEvent = evlog.Add
 	log.Printf("vigia watching every %s (alerts: %v)", *interval, notifier != nil)
+	out := &outbox{Max: 20}
 	for {
-		for _, a := range w.Tick(time.Now(), check()) {
+		alerts := w.Tick(time.Now(), check())
+		for _, a := range alerts {
 			log.Printf("alert %s: %s", a.Key, a.Message)
-			if notifier == nil {
-				continue
-			}
-			if err := notifier.Send(a); err != nil {
-				log.Printf("ntfy: %v", err)
-				evlog.Add(Event{Time: time.Now(), Key: a.Key, Status: "send-failed", Detail: err.Error()})
+		}
+		if notifier != nil {
+			for _, err := range out.Flush(notifier.Send, alerts) {
+				log.Printf("ntfy: %v (%d alerts queued)", err, len(out.pending))
+				evlog.Add(Event{Time: time.Now(), Key: "ntfy", Status: "send-failed", Detail: err.Error()})
 			}
 		}
 		time.Sleep(*interval)

@@ -177,3 +177,87 @@ func TestLoadConfig(t *testing.T) {
 		t.Fatalf("%v %v", c, err)
 	}
 }
+
+func TestLogProblemKeepsSpeechOffThePhone(t *testing.T) {
+	line := `2026/11/25 01:01:05 bad tool args for set_reminder: "{label:'llamar a Ana al 555-1234'"`
+	p, ok := logProblem(line)
+	if !ok {
+		t.Fatal("must be a problem")
+	}
+	if strings.Contains(p.Text, "555") || strings.Contains(p.Text, "Ana") {
+		t.Fatalf("alert text must not carry the logged content: %q", p.Text)
+	}
+	if !strings.Contains(p.Detail, "555-1234") {
+		t.Fatalf("the local detail must keep the full line: %q", p.Detail)
+	}
+	w := newWatcher(90*time.Second, time.Hour)
+	var evs []Event
+	w.OnEvent = func(e Event) { evs = append(evs, e) }
+	a := w.Tick(time.Unix(0, 0), []Problem{p})
+	if len(a) != 1 || strings.Contains(a[0].Message, "555") {
+		t.Fatalf("alert: %+v", a)
+	}
+	if len(evs) == 0 || evs[0].Status != "detected" || !strings.Contains(evs[0].Detail, "555-1234") {
+		t.Fatalf("detected event must keep the detail: %+v", evs)
+	}
+}
+
+func TestWatcherRateLimitsFlappingService(t *testing.T) {
+	w := newWatcher(90*time.Second, time.Hour)
+	t0 := time.Date(2026, 11, 25, 1, 0, 0, 0, time.UTC)
+	down := []Problem{{Key: "service:puente", Text: "El servicio puente no está corriendo (exited:1)."}}
+	w.Tick(t0, down)
+	if a := w.Tick(t0.Add(90*time.Second), down); len(a) != 1 {
+		t.Fatalf("first lasting failure must alert: %+v", a)
+	}
+	if a := w.Tick(t0.Add(120*time.Second), nil); len(a) != 1 || !a[0].Recovered {
+		t.Fatalf("first recovery must alert: %+v", a)
+	}
+	// Flaps again inside the hour: no new alerts, neither failure nor recovery.
+	w.Tick(t0.Add(150*time.Second), down)
+	if a := w.Tick(t0.Add(240*time.Second), down); len(a) != 0 {
+		t.Fatalf("repeat inside the hour must be muted: %+v", a)
+	}
+	if a := w.Tick(t0.Add(270*time.Second), nil); len(a) != 0 {
+		t.Fatalf("muted failure must recover silently: %+v", a)
+	}
+	// After the hour it alerts again and reports the muted repeat.
+	t1 := t0.Add(2 * time.Hour)
+	w.Tick(t1, down)
+	a := w.Tick(t1.Add(90*time.Second), down)
+	if len(a) != 1 || !strings.Contains(a[0].Message, "más en la última hora") {
+		t.Fatalf("after the hour: %+v", a)
+	}
+}
+
+func TestOutboxRetriesFailedSends(t *testing.T) {
+	var sent []string
+	fail := true
+	send := func(a Alert) error {
+		if fail {
+			return io.ErrUnexpectedEOF
+		}
+		sent = append(sent, a.Message)
+		return nil
+	}
+	o := &outbox{Max: 3}
+	if errs := o.Flush(send, []Alert{{Message: "uno"}, {Message: "dos"}}); len(errs) != 1 {
+		t.Fatalf("one error per flush when the server is down: %v", errs)
+	}
+	fail = false
+	o.Flush(send, []Alert{{Message: "tres"}})
+	if strings.Join(sent, ",") != "uno,dos,tres" {
+		t.Fatalf("queued alerts must go first, in order: %v", sent)
+	}
+	if errs := o.Flush(send, nil); len(errs) != 0 || len(sent) != 3 {
+		t.Fatalf("nothing left to send: %v %v", errs, sent)
+	}
+	fail = true
+	o.Flush(send, []Alert{{Message: "a"}, {Message: "b"}, {Message: "c"}, {Message: "d"}})
+	fail = false
+	sent = nil
+	o.Flush(send, nil)
+	if strings.Join(sent, ",") != "b,c,d" {
+		t.Fatalf("queue keeps only the newest Max alerts: %v", sent)
+	}
+}
