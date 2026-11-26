@@ -27,3 +27,4 @@ secrets/
 wakeword/data/
 wakeword/.venv/
 __pycache__/
+dist/
