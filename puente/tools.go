@@ -35,6 +35,7 @@ var toolSpecs = json.RawMessage(`[
 {"type":"function","function":{"name":"daily_text","description":"Read the daily Bible text (texto diario, Examinemos las Escrituras) from wol.jw.org.","parameters":{"type":"object","properties":{"day":{"type":"string","enum":["hoy","mañana","ayer","pasado mañana","anteayer"],"description":"Relative day. Always use this for hoy, mañana, ayer, pasado mañana or anteayer; the device computes the date."},"date":{"type":"string","description":"YYYY-MM-DD, only for a specific calendar date the user names (e.g. el 3 de diciembre). Omit both for today."}}}}},
 {"type":"function","function":{"name":"read_watchtower","description":"Read aloud the Watchtower study article (estudio de La Atalaya) from wol.jw.org, paragraph by paragraph with its questions. week: esta (default) or siguiente for next week.","parameters":{"type":"object","properties":{"week":{"type":"string","enum":["esta","siguiente"]}}}}},
 {"type":"function","function":{"name":"read_workbook","description":"Read aloud the meeting workbook (Guía de actividades, Vida y Ministerio, guía de estudio de la reunión) of the week.","parameters":{"type":"object","properties":{"week":{"type":"string","enum":["esta","siguiente"]}}}}},
+{"type":"function","function":{"name":"read_book_study","description":"Read aloud the congregation Bible study chapter of the week (estudio bíblico de la congregación, estudio de libro).","parameters":{"type":"object","properties":{"week":{"type":"string","enum":["esta","siguiente"]}}}}},
 {"type":"function","function":{"name":"read_weekly_bible_reading","description":"Read aloud this week's Bible reading (lectura de la Biblia de la semana) from the workbook.","parameters":{"type":"object","properties":{"week":{"type":"string","enum":["esta","siguiente"]}}}}},
 {"type":"function","function":{"name":"read_bible","description":"Read a Bible chapter or verses aloud, e.g. 'lee Juan 3:16' (book Juan, chapter 3, verse_start 16), 'lee el Salmo 23' (whole chapter: omit verses).","parameters":{"type":"object","properties":{"book":{"type":"string","description":"Spanish book name, e.g. Juan, Salmos, Primera de Juan"},"chapter":{"type":"integer"},"verse_start":{"type":"integer"},"verse_end":{"type":"integer"}},"required":["book","chapter"]}}},
 {"type":"function","function":{"name":"resume_reading","description":"Continue the last long reading where it stopped ('continúa la lectura', 'sigue leyendo').","parameters":{"type":"object","properties":{}}}},
@@ -117,6 +118,8 @@ func Exec(api API, name, args string) string {
 		return readWatchtower(strArg(a, "week"))
 	case "read_workbook":
 		return readWorkbook(strArg(a, "week"))
+	case "read_book_study":
+		return readBookStudy(strArg(a, "week"))
 	case "read_weekly_bible_reading":
 		return readWeeklyBible(strArg(a, "week"))
 	case "read_bible":

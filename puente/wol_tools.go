@@ -141,3 +141,18 @@ func readParagraph(n int) string {
 	}
 	return fmt.Sprintf("Leyendo el párrafo %d de %s.", n, title)
 }
+
+func readBookStudy(week string) string {
+	if svc.JW == nil {
+		return "Todavía no puedo leer el estudio de libro."
+	}
+	t, label := wolWeek(week)
+	ctx, cancel := wolCtx()
+	defer cancel()
+	r, err := svc.JW.BookStudy(ctx, t)
+	if err != nil {
+		logf("wol book study: %v", err)
+		return "No pude traer el estudio bíblico de la congregación " + label + "."
+	}
+	return startReading(r, fmt.Sprintf("Voy a leer el estudio bíblico de la congregación %s: %s.", label, r.Title), false)
+}

@@ -385,12 +385,13 @@ func paraLabel(nums []int) string {
 }
 
 var (
-	reSong     = regexp.MustCompile(`(?i)^canción (\d+)\s+(.+)$`)
-	reWeek1    = regexp.MustCompile(`(?i)^(\d+)-(\d+) de (\p{L}+)`)
-	reWeek2    = regexp.MustCompile(`(?i)^(\d+) de (\p{L}+)\s*-\s*(\d+) de (\p{L}+)`)
-	reAlt      = regexp.MustCompile(`alt="([^"]*)"`)
-	reFigure   = regexp.MustCompile(`(?s)<figure\b.*?</figure>`)
-	reMiraPara = regexp.MustCompile(`\s*\((?:mira|vea|ve) (?:el párrafo|los párrafos) (\d+)[^)]*\)`)
+	reSong       = regexp.MustCompile(`(?i)^canción (\d+)\s+(.+)$`)
+	reWeek1      = regexp.MustCompile(`(?i)^(\d+)-(\d+) de (\p{L}+)`)
+	reWeek2      = regexp.MustCompile(`(?i)^(\d+) de (\p{L}+)\s*-\s*(\d+) de (\p{L}+)`)
+	reAlt        = regexp.MustCompile(`alt="([^"]*)"`)
+	reFigure     = regexp.MustCompile(`(?s)<figure\b.*?</figure>`)
+	reImageLabel = regexp.MustCompile(`^Imagen [A-Z]:\s*`)
+	reMiraPara   = regexp.MustCompile(`\s*\((?:mira|vea|ve) (?:el párrafo|los párrafos) (\d+)[^)]*\)`)
 )
 
 // weekPhrase turns "23-29 DE NOVIEMBRE DE 2026" into "del 23 al 29 de noviembre".
@@ -425,6 +426,7 @@ func figurePiece(inner string, qNums []int, seeing string) (ReadPiece, bool) {
 	if len(qNums) > 0 {
 		para = qNums[0]
 	}
+	caption = reImageLabel.ReplaceAllString(caption, "")
 	if m := reMiraPara.FindStringSubmatch(caption); m != nil {
 		para, _ = strconv.Atoi(m[1])
 		caption = strings.TrimSpace(reMiraPara.ReplaceAllString(caption, ""))
@@ -439,7 +441,11 @@ func figurePiece(inner string, qNums []int, seeing string) (ReadPiece, bool) {
 			first, _, _ := strings.Cut(alt, " ")
 			if articleWords[strings.ToLower(first)] {
 				alt = strings.ToLower(alt[:len(first)]) + alt[len(first):]
-				parts = append(parts, seeing+" que "+alt)
+				join := " que "
+				if strings.HasSuffix(seeing, "muestra") {
+					join = " "
+				}
+				parts = append(parts, seeing+join+alt)
 			} else {
 				parts = append(parts, seeing+": "+alt)
 			}
@@ -685,7 +691,7 @@ func speakPubRef(s string) (string, bool) {
 var (
 	reWbMins    = regexp.MustCompile(`\s*\((\d+) mins?\.\)`)
 	reWbLeadRef = regexp.MustCompile(`^((?:[123] )?\p{L}+\.? \d+:\d+(?:-\d+)?)\.\s+`)
-	reWbInline  = regexp.MustCompile(`\b(?:(?:w|g)\d{2}(?:\.\d{2}| \d{1,2}/\d{1,2}) \d+(?:-\d+)?(?: párrs?\. [\d-]+(?:, \d+)*)?|th lección \d+|lmd lección \d+(?: punto \d+)?|wcg (?:cap|lec)\. \d+)`)
+	reWbInline  = regexp.MustCompile(`\b(?:(?:w|g)\d{2}(?:\.\d{2}| \d{1,2}/\d{1,2}) \d+(?:-\d+)?(?: párrs?\. [\d-]+(?:, \d+)*)?|th lección \d+|lmd lección \d+(?: punto \d+)?|wcg (?:cap|lec)\. \d+|it “[^”]+” párrs?\. [\d-]+(?:, \d+)*)`)
 )
 
 // workbookLine reads one workbook line like the meeting audio: minutes
