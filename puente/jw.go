@@ -146,7 +146,8 @@ func SpeakBibleRefs(s string) string {
 // Track is one playable audio item.
 type Track struct {
 	Title    string
-	URL      string
+	Artist   string // empty when unknown
+	URL      string // http(s) MP3, or yt:<videoId> for YouTube
 	Duration float64 // seconds, 0 when unknown
 }
 
