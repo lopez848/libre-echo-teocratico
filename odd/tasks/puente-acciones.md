@@ -29,6 +29,7 @@ Branch: none (not a git repo; deployed via adb). Test runner: `go test ./...` in
 - T9 Reboot test of the Echo (voice-es, puente, tts-local come back) — DONE 2026-11-25 (uptime 35 min: voice-es exited:0, puente and tts-local running, overrides rewritten, time/timer answers OK)
 - T10 Daily text for relative days computed by the bridge (`day` param) — DONE 2026-11-25 (RED->GREEN TestDailyTextToolRelativeDay, deployed, 5 live phrases OK)
 - T11 Model wrote `cancelar_timers{}` as text (Spanish tool name) and the timer was not cancelled — DONE 2026-11-25 (resolveTool translates Spanish words; RED->GREEN TestTextToolCallForms + TestExecResolvesSpanishToolName; deployed; 3 live set/cancel rounds OK)
+- T12 Daily text read only half (agentd ~635-byte reply cap) — inline — DONE 2026-11-26 (RED->GREEN 4 tests, -race clean; live: agentd 6 sentences + bridge 4 pieces = whole text)
 
 ## Log
 - L1 2026-11-24 user: "suena bien, pero quiero q haga mas cosas porq eso nada mas" then "si haslo".
