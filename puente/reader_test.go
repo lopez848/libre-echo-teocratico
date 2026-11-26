@@ -111,3 +111,24 @@ func indexOf(list []string, s string) int {
 	}
 	return -1
 }
+
+func TestReaderPausesBeforeMarkedPieces(t *testing.T) {
+	v := &fakeVoice{}
+	r := newTestReader(v)
+	r.Pause = 60 * time.Millisecond
+	r.Start(Reading{Title: "x", Pieces: []ReadPiece{{Para: 1, Text: "Antes."}, {Para: 1, Text: "Leamos el texto.", Pause: true}}}, 0)
+	waitFor(t, func() bool { return len(v.said()) == 2 })
+	v.mu.Lock()
+	gap := v.startedAt[1].Sub(v.startedAt[0])
+	v.mu.Unlock()
+	if gap < 60*time.Millisecond {
+		t.Fatalf("a marked piece must wait for the pause: %v", gap)
+	}
+	if _, ok := r.Jump(1); !ok {
+		t.Fatal("jump must work")
+	}
+	waitFor(t, func() bool { return len(v.said()) == 4 })
+	if v.said()[2] != Speakable("Antes.") {
+		t.Fatalf("a paragraph jump starts at its first piece: %q", v.said()[2])
+	}
+}

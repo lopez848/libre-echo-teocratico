@@ -30,7 +30,7 @@ const wolStudyPage = `<html><article id="article"><div class="scalableui">
 <p data-pid="79">Otro pie de imagen sin número.</p>
 <h2 data-pid="9">UN SUBTÍTULO</h2>
 <p class="qu" data-pid="42">3, 4. ¿Pregunta doble?</p>
-<p data-pid="10">3 Tercer párrafo (<strong>lee</strong> <a href="/es/wol/bc/r" class="b"><strong>Hebreos 7:25</strong></a>).</p>
+<p data-pid="10">3 Tercer párrafo (<strong>lee</strong> <a href="/es/wol/bc/r" class="b"><strong>Hebreos 7:25</strong></a>). Sigue el párrafo tres.</p>
 <p data-pid="11">4 Cuarto párrafo <strong>(lee</strong> <a href="/es/wol/bc/s" class="b"><strong>Hebreos 4:15</strong></a><strong>).</strong></p>
 <h2>¿QUÉ RESPONDERÍAS?</h2><ul><li><p>¿Repaso uno? Respuesta</p></li><li><p>¿Repaso dos? Respuesta</p></li></ul>
 <p class="pubRefs" data-pid="37">CANCIÓN 2 Otra canción</p>
@@ -90,7 +90,7 @@ func TestParseStudyArticle(t *testing.T) {
 	if p := r.Pieces[2].Text; !strings.HasPrefix(p, "Párrafo 2. Según Hebreos 4, versículo 16, ¿segunda pregunta?") || !strings.Contains(p, "(Primera de Juan 4, versículo 8)") || !strings.Contains(p, "Hebreos 5, versículo 1") || strings.Contains(p, "imagen") || strings.Contains(p, "Pie de") {
 		t.Fatalf("paragraph 2 must drop captions and image notes: %q", p)
 	}
-	if p := r.Pieces[3].Text; p != "Un subtítulo. Párrafos 3 y 4. ¿Pregunta doble? Tercer párrafo (lee Hebreos 7, versículo 25)." {
+	if p := r.Pieces[3].Text; p != "Un subtítulo. Párrafos 3 y 4. ¿Pregunta doble? Tercer párrafo (lee Hebreos 7, versículo 25). Sigue el párrafo tres." {
 		t.Fatalf("paragraph 3 %q", p)
 	}
 	if got := fmt.Sprint(r.Pieces[3].Reads); got != "[{58 7 25 25}]" {
@@ -238,8 +238,22 @@ func TestWOLWeekPagesUseISOWeek(t *testing.T) {
 	if err != nil || r.Title != "Un artículo de prueba" {
 		t.Fatalf("%+v %v", r.Title, err)
 	}
-	if p := r.Pieces[3].Text; !strings.HasSuffix(p, "Tercer párrafo (lee Hebreos 7, versículo 25). Leamos Hebreos 7, versículo 25. Versículo 25 primera línea, y segunda línea del versículo 25.") {
-		t.Fatalf("the 'lee' text must be read after its paragraph: %q", p)
+	// The "lee" text is read where the paragraph mentions it, as separate
+	// pieces after a pause, then the paragraph goes on.
+	var p3 []string
+	for _, p := range r.Pieces {
+		if p.Para == 3 {
+			p3 = append(p3, fmt.Sprintf("%v|%s", p.Pause, p.Text))
+		}
+	}
+	want := []string{
+		"false|Un subtítulo. Párrafos 3 y 4. ¿Pregunta doble? Tercer párrafo (lee Hebreos 7, versículo 25).",
+		"true|Leamos Hebreos 7, versículo 25.",
+		"false|Versículo 25 primera línea, y segunda línea del versículo 25.",
+		"true|Sigue el párrafo tres.",
+	}
+	if strings.Join(p3, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("paragraph 3 pieces:\n%s", strings.Join(p3, "\n"))
 	}
 	if (*paths)[0] != "/es/wol/meetings/r4/lp-s/2026/48" {
 		t.Fatalf("this week: %v", *paths)

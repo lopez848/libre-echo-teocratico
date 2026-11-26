@@ -14,6 +14,7 @@ type Reader struct {
 	Poll      time.Duration
 	Idle      time.Duration
 	StartWait time.Duration
+	Pause     time.Duration // silence before pieces marked Pause
 
 	mu      sync.Mutex
 	cur     *Reading
@@ -146,6 +147,14 @@ func (r *Reader) launch() {
 			}
 			piece := r.cur.Pieces[r.pos]
 			r.mu.Unlock()
+			if piece.Pause && r.Pause > 0 {
+				select {
+				case <-ctx.Done():
+					finish()
+					return
+				case <-time.After(r.Pause):
+				}
+			}
 			for _, s := range SplitSentences(piece.Text, 200) {
 				if ctx.Err() != nil {
 					finish()

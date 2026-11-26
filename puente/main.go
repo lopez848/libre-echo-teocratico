@@ -119,7 +119,7 @@ func main() {
 			Idle: 1500 * time.Millisecond, StartWait: 15 * time.Second},
 	}
 	svc.Reader = &Reader{Voice: &LocalTTS{Socket: *mainTTS}, Poll: 300 * time.Millisecond,
-		Idle: 1500 * time.Millisecond, StartWait: 15 * time.Second}
+		Idle: 1500 * time.Millisecond, StartWait: 15 * time.Second, Pause: 700 * time.Millisecond}
 	if *wyAddr != "" {
 		l, err := net.Listen("tcp", *wyAddr)
 		if err != nil {

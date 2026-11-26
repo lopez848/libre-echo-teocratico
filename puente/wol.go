@@ -16,7 +16,8 @@ import (
 type ReadPiece struct {
 	Para  int
 	Text  string
-	Reads []BibleRef // texts marked "lee": read aloud after the paragraph
+	Reads []BibleRef // texts marked "lee": read aloud where they are cited
+	Pause bool       // short silence before this piece
 }
 
 // BibleRef is a chapter and verse range.
@@ -562,25 +563,63 @@ func (j *JW) Watchtower(ctx context.Context, t time.Time) (Reading, error) {
 	if err != nil {
 		return r, err
 	}
-	// Texts marked "lee" are read in the meeting: append them to their
-	// paragraph so the reading includes them.
-	for i, p := range r.Pieces {
+	// Texts marked "lee" are read in the meeting: read each one where the
+	// paragraph cites it, after a short pause, then go on with the paragraph.
+	var out []ReadPiece
+	for _, p := range r.Pieces {
+		if len(p.Reads) == 0 {
+			out = append(out, p)
+			continue
+		}
+		rest := p.Text
+		first := true
 		for _, ref := range p.Reads {
 			b, err := j.Bible(ctx, ref.Book, ref.Chapter, ref.From, ref.To)
 			if err != nil {
 				logf("wol lee text %+v: %v", ref, err)
 				continue
 			}
+			before, after := splitAtCitation(rest, b.Title)
+			if before != "" {
+				out = append(out, ReadPiece{Para: p.Para, Text: before, Pause: !first})
+			}
+			first = false
+			out = append(out, ReadPiece{Para: p.Para, Text: "Leamos " + b.Title + ".", Pause: true})
 			for k, bp := range b.Pieces {
+				t := bp.Text
 				if k == 0 {
-					r.Pieces[i].Text += " Leamos " + bp.Text
-				} else {
-					r.Pieces[i].Text += " " + bp.Text
+					t = strings.TrimSpace(strings.TrimPrefix(t, b.Title+"."))
+				}
+				if t != "" {
+					out = append(out, ReadPiece{Para: p.Para, Text: t})
 				}
 			}
+			rest = after
+		}
+		if rest != "" {
+			out = append(out, ReadPiece{Para: p.Para, Text: rest, Pause: !first})
 		}
 	}
+	r.Pieces = out
 	return r, nil
+}
+
+// splitAtCitation cuts a paragraph after the sentence that says "lee <ref>"
+// (ref already in spoken form). Without that mention the whole text comes
+// first and the Bible text follows it.
+func splitAtCitation(text, ref string) (string, string) {
+	i := strings.Index(text, "lee "+ref)
+	if i < 0 {
+		return text, ""
+	}
+	rest := text[i:]
+	end := len(rest)
+	for _, sep := range []string{". ", "? ", "! "} {
+		if k := strings.Index(rest, sep); k >= 0 && k+1 < end {
+			end = k + 1
+		}
+	}
+	return strings.TrimSpace(text[:i] + rest[:end]), strings.TrimSpace(rest[end:])
 }
 
 // Workbook returns the "Vida y Ministerio" week that contains t.
