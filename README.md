@@ -39,12 +39,17 @@ device user, and streams the reply back as SSE.
 
 ## Build and test
 
-The Echo kernel lacks `eventfd`, so build with Go 1.21:
+The Echo kernel lacks `eventfd`. `puente` builds with the patched Go 1.27 toolchain (see
+"Go toolchain for the Echo" below); `vigia` still builds with stock Go 1.21:
 
 ```sh
+tools/go-echo/setup.sh            # once
+G=~/.local/share/go-echo/go1.27.4/bin/go
 cd puente
-GOTOOLCHAIN=go1.21.13 go test ./...
-GOTOOLCHAIN=go1.21.13 GOOS=linux GOARCH=arm GOARM=7 go build -o puente-armv7 .
+GOTOOLCHAIN=local $G test ./...
+GOTOOLCHAIN=local CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 $G build -buildvcs=false -o puente-armv7 .
+cd ../vigia
+GOTOOLCHAIN=go1.21.13 CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -buildvcs=false -o vigia-armv7 .
 ```
 
 ## Run on the device
