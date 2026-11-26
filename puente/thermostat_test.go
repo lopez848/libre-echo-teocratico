@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"math"
 	"net"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -113,5 +115,35 @@ func TestIndoorTemperatureQuestionSkipsTheModel(t *testing.T) {
 		if isThermostatQuestion(q) {
 			t.Errorf("%q is not an indoor status question", q)
 		}
+	}
+}
+
+// When the router gives the thermostat a new address, the bridge finds it
+// on the network by its HomeKit id and saves the new address (owner,
+// 2026-11-26: "haz que Mia lo busque sola en la red").
+func TestThermostatFindsANewAddress(t *testing.T) {
+	withThermostat(t)
+	b, _ := os.ReadFile(svc.Thermo.File)
+	var f thermostatFile
+	json.Unmarshal(b, &f)
+	real := f.Addr
+	f.Addr = "127.0.0.1:1" // old address, nothing listens there
+	b, _ = json.Marshal(f)
+	os.WriteFile(svc.Thermo.File, b, 0o600)
+	var asked string
+	svc.Thermo.Lookup = func(id string) (string, error) { asked = id; return real, nil }
+	if got := Exec(&fakeAPI{}, "thermostat_status", `{}`); !strings.HasPrefix(got, "En la casa hay 72 grados.") {
+		t.Fatalf("reply %q", got)
+	}
+	if asked != f.Pairing.AccessoryID {
+		t.Fatalf("looked up %q, want the accessory id %q", asked, f.Pairing.AccessoryID)
+	}
+	b, _ = os.ReadFile(svc.Thermo.File)
+	json.Unmarshal(b, &f)
+	if f.Addr != real {
+		t.Fatalf("saved addr %q, want %q", f.Addr, real)
+	}
+	if st, _ := os.Stat(svc.Thermo.File); st.Mode().Perm() != 0o600 {
+		t.Fatal("the pairing file must stay 600")
 	}
 }

@@ -86,6 +86,16 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Println("paired; saved", *thermoFile)
+		// Check that the thermostat can be found again by its HomeKit id if
+		// its address changes.
+		var f thermostatFile
+		if b, err := os.ReadFile(*thermoFile); err == nil && json.Unmarshal(b, &f) == nil && f.Pairing != nil {
+			if addr, err := (&Thermostat{}).lookup(f.Pairing.AccessoryID); err == nil {
+				fmt.Println("found on the network by its id at", addr)
+			} else {
+				fmt.Println("warning: not found on the network by its id; keep its address fixed in the router:", err)
+			}
+		}
 		return
 	}
 	svc.Thermo = &Thermostat{File: *thermoFile}

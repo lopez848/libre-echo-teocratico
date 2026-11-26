@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"puente/hap"
 )
@@ -30,7 +32,11 @@ func PairThermostat(file, addr, code string) error {
 	if err != nil {
 		return err
 	}
-	b, _ := json.Marshal(thermostatFile{Addr: addr, Pairing: p})
+	return saveThermostat(file, thermostatFile{Addr: addr, Pairing: p})
+}
+
+func saveThermostat(file string, f thermostatFile) error {
+	b, _ := json.Marshal(f)
 	tmp := file + ".tmp"
 	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return err
@@ -44,6 +50,9 @@ func PairThermostat(file, addr, code string) error {
 // Thermostat talks to the paired thermostat, keeping one session open.
 type Thermostat struct {
 	File string
+	// Lookup finds the thermostat's current address by its HomeKit id when
+	// the saved one stops answering (nil: mDNS on the local network).
+	Lookup func(id string) (string, error)
 
 	mu     sync.Mutex
 	client *hap.Client
@@ -78,7 +87,19 @@ func (t *Thermostat) connect() error {
 	}
 	c, err := hap.Dial(f.Addr, f.Pairing)
 	if err != nil {
-		return err
+		addr, lerr := t.lookup(f.Pairing.AccessoryID)
+		if lerr != nil || addr == f.Addr {
+			return err
+		}
+		c, err = hap.Dial(addr, f.Pairing)
+		if err != nil {
+			return err
+		}
+		logf("thermostat moved from %s to %s", f.Addr, addr)
+		f.Addr = addr
+		if serr := saveThermostat(t.File, f); serr != nil {
+			logf("thermostat: could not save the new address: %v", serr)
+		}
 	}
 	accs, err := c.Accessories()
 	if err != nil {
@@ -97,6 +118,15 @@ func (t *Thermostat) connect() error {
 	}
 	t.client, t.ids = c, ids
 	return nil
+}
+
+func (t *Thermostat) lookup(id string) (string, error) {
+	if t.Lookup != nil {
+		return t.Lookup(id)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	return hap.Lookup(ctx, hap.MDNSGroup, id)
 }
 
 // with runs fn on a session, reconnecting once if the session broke.
@@ -196,7 +226,6 @@ func thermostatStatus() string {
 	}
 	return out + "."
 }
-
 
 var modeValues = map[string]int{"off": 0, "heat": 1, "cool": 2, "auto": 3}
 
