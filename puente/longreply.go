@@ -95,17 +95,21 @@ func (t *tailSpeaker) Start(pieces []string) {
 // waitSilence waits for agentd to start speaking the first part (or
 // StartWait to pass), then for Idle of continuous silence.
 func (t *tailSpeaker) waitSilence(ctx context.Context) bool {
+	return waitSilence(ctx, t.Voice, t.Poll, t.Idle, t.StartWait)
+}
+
+func waitSilence(ctx context.Context, v voice, poll, idle, startWait time.Duration) bool {
 	sleep := func() bool {
 		select {
 		case <-ctx.Done():
 			return false
-		case <-time.After(t.Poll):
+		case <-time.After(poll):
 			return true
 		}
 	}
-	deadline := time.Now().Add(t.StartWait)
+	deadline := time.Now().Add(startWait)
 	for time.Now().Before(deadline) {
-		if on, err := t.Voice.Speaking(); err == nil && on {
+		if on, err := v.Speaking(); err == nil && on {
 			break
 		}
 		if !sleep() {
@@ -114,16 +118,16 @@ func (t *tailSpeaker) waitSilence(ctx context.Context) bool {
 	}
 	quietSince := time.Time{}
 	for {
-		on, err := t.Voice.Speaking()
+		on, err := v.Speaking()
 		if err != nil {
-			logf("long reply voice status: %v", err)
+			logf("voice status: %v", err)
 			return false
 		}
 		if on {
 			quietSince = time.Time{}
 		} else if quietSince.IsZero() {
 			quietSince = time.Now()
-		} else if time.Since(quietSince) >= t.Idle {
+		} else if time.Since(quietSince) >= idle {
 			return true
 		}
 		if !sleep() {

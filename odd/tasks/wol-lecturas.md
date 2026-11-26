@@ -11,7 +11,7 @@ Objective: Mia reads this week's (or next week's) Watchtower study article, the 
 
 ## Tasks
 - T1 S2-S5 wol.go: week pages (/es/wol/meetings/r4/lp-s/<ISO year>/<ISO week>), article, workbook and Bible chapter parsers into ordered reading pieces; tests on small synthetic HTML fixtures — inline — DONE 2026-11-26 (RED->GREEN 6 tests; live: this week article 22 pieces, next week article, workbook with weekly reading LAMENTACIONES 3-5, weekly chapters 30 pieces, Juan 3:16-17, Salmo 23)
-- T2 S6 resumable reader: speaks pieces through the main ttsd after agentd's intro, remembers the position on stop, resumes, jumps to a paragraph — inline
+- T2 S6 resumable reader: speaks pieces through the main ttsd after agentd's intro, remembers the position on stop, resumes, jumps to a paragraph — inline — DONE 2026-11-26 (RED->GREEN 4 tests, -race clean)
 - T3 S2-S6 voice tools (read_watchtower, read_workbook, read_bible, read_weekly_bible_reading, resume_reading), Spanish phrasing, docs — inline
 - T4 deploy to the Echo, live test each request, rollback note — inline
 
