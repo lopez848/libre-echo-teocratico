@@ -157,16 +157,32 @@ func readBookStudy(week string) string {
 	return startReading(r, fmt.Sprintf("Voy a leer el estudio bíblico de la congregación %s: %s.", label, r.Title), false)
 }
 
+// jwFeatures lists every jw.org voice feature and how to ask for it. The
+// help answer is built from it, and a test fails when a new jw.org tool is
+// added without an entry here.
+var jwFeatures = []struct {
+	Tools []string
+	Say   string
+}{
+	{[]string{"daily_text"}, "Leer el texto diario de hoy, de mañana o de ayer: di «lee el texto diario»."},
+	{[]string{"read_watchtower"}, "Leer el estudio de La Atalaya de esta semana o de la próxima semana: «lee el estudio de La Atalaya»."},
+	{[]string{"read_workbook"}, "Leer la guía de actividades de la reunión: «lee la guía de actividades»."},
+	{[]string{"read_book_study"}, "Leer el estudio de libro de la congregación: «lee el estudio de libro»."},
+	{[]string{"read_weekly_bible_reading"}, "Leer la lectura bíblica de la semana: «lee la lectura bíblica de esta semana»."},
+	{[]string{"read_bible"}, "Leer cualquier capítulo o versículo de la Biblia: «lee Juan 3, versículo 16» o «lee el Salmo 23»."},
+	{[]string{"play_jw_music"}, "Poner música de jw.org: «pon Música internacional» o «pon Canciones originales»."},
+	{[]string{"play_morning_worship"}, "Poner la adoración matutina más reciente: «pon la adoración matutina más reciente», o varias en orden aleatorio: «pon adoraciones matutinas»."},
+	{[]string{"resume_reading", "read_paragraph"}, "Mientras leo, puedes decir «para», después «continúa la lectura», o «lee el párrafo 5» para saltar a un párrafo."},
+}
+
 // jwHelp tells the owner everything Mia can do with jw.org and how to ask.
-const jwHelp = "Con jw.org puedo hacer esto. " +
-	"Leer el texto diario de hoy, de mañana o de ayer: di «lee el texto diario». " +
-	"Leer el estudio de La Atalaya de esta semana o de la próxima semana: «lee el estudio de La Atalaya». " +
-	"Leer la guía de actividades de la reunión: «lee la guía de actividades». " +
-	"Leer el estudio de libro de la congregación: «lee el estudio de libro». " +
-	"Leer la lectura bíblica de la semana: «lee la lectura bíblica de esta semana». " +
-	"Leer cualquier capítulo o versículo de la Biblia: «lee Juan 3, versículo 16» o «lee el Salmo 23». " +
-	"Poner música de jw.org: «pon Música internacional» o «pon Canciones originales». " +
-	"Mientras leo, puedes decir «para», después «continúa la lectura», o «lee el párrafo 5» para saltar a un párrafo."
+var jwHelp = func() string {
+	parts := []string{"Con jw.org puedo hacer esto."}
+	for _, f := range jwFeatures {
+		parts = append(parts, f.Say)
+	}
+	return strings.Join(parts, " ")
+}()
 
 // isJWHelpQuestion recognizes "¿qué puedes hacer con jw.org?" however the
 // speech recognizer spells jw.org, so the full list never depends on the
@@ -188,4 +204,29 @@ func isJWHelpQuestion(text string) bool {
 		}
 	}
 	return false
+}
+
+func playMorningWorship(mode string) string {
+	if svc.JW == nil || svc.Player == nil {
+		return "Todavía no puedo poner la adoración matutina."
+	}
+	ctx, cancel := wolCtx()
+	defer cancel()
+	tracks, err := svc.JW.MorningWorship(ctx)
+	if err != nil || len(tracks) == 0 {
+		logf("jw morning worship: %v", err)
+		return "No pude traer las adoraciones matutinas de jw.org."
+	}
+	if f := fold(mode); strings.Contains(f, "reciente") || strings.Contains(f, "ultima") || strings.Contains(f, "nueva") {
+		first, err := svc.Player.Start("la adoración matutina más reciente", tracks[:1], false)
+		if err != nil {
+			return failed(err)
+		}
+		return "Poniendo la adoración matutina más reciente: " + spoken(first.Title) + "."
+	}
+	first, err := svc.Player.Start("adoraciones matutinas", tracks, true)
+	if err != nil {
+		return failed(err)
+	}
+	return "Poniendo adoraciones matutinas en orden aleatorio. Empieza " + spoken(first.Title) + "."
 }

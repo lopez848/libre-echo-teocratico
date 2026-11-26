@@ -119,6 +119,15 @@ func (b *BusPlayer) open(ctx context.Context, url string) (*pcmSource, error) {
 		}
 		return &pcmSource{R: dec, Rate: info.SampleRate, Channels: info.Channels, Close: func() {}}, nil
 	}
+	if p := strings.ToLower(strings.SplitN(url, "?", 2)[0]); strings.HasSuffix(p, ".mp4") || strings.HasSuffix(p, ".m4a") {
+		// jw.org videos (morning worship): play the AAC audio track.
+		rr := &rangeReader{HTTP: b.HTTP, URL: url, Chunk: 1 << 20, Ctx: ctx}
+		dec, info, err := aacm4a.NewDecoder(rr)
+		if err != nil {
+			return nil, fmt.Errorf("aac %s: %w", url, err)
+		}
+		return &pcmSource{R: dec, Rate: info.SampleRate, Channels: info.Channels, Close: func() {}}, nil
+	}
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err

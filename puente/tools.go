@@ -42,6 +42,7 @@ var toolSpecs = json.RawMessage(`[
 {"type":"function","function":{"name":"resume_reading","description":"Continue the last long reading where it stopped ('continúa la lectura', 'sigue leyendo').","parameters":{"type":"object","properties":{}}}},
 {"type":"function","function":{"name":"read_paragraph","description":"Read from a given paragraph of the current reading, or of this week's Watchtower study article ('lee el párrafo 5').","parameters":{"type":"object","properties":{"paragraph":{"type":"integer"}},"required":["paragraph"]}}},
 {"type":"function","function":{"name":"play_jw_music","description":"Play a music section from jw.org in random order, e.g. 'reproduce desde jw.org Música internacional'.","parameters":{"type":"object","properties":{"collection":{"type":"string","enum":["Música internacional","Canciones originales","Cantemos con gozo a Jehová (para las reuniones)","Cantemos con gozo a Jehová (cantadas)","Cantemos con gozo a Jehová (instrumental)","Cantemos a Jehová (coro y orquesta)","Canciones para niños","Melodías del Reino"]}},"required":["collection"]}}},
+{"type":"function","function":{"name":"play_morning_worship","description":"Play the morning worship programs (adoración matutina) from jw.org: mode reciente for the most recent one, aleatorio (default) for many in random order.","parameters":{"type":"object","properties":{"mode":{"type":"string","enum":["aleatorio","reciente"]}}}}},
 {"type":"function","function":{"name":"play_youtube","description":"Play music from YouTube. mode artist: only songs by one artist ('pon canciones de Juan Luis Guerra'); mode song: one specific song, then similar songs ('pon Bachata Rosa', 'pon la canción Provenza de Karol G'); mode like_current: songs similar to the one playing now ('pon algo parecido a esto'). Not for jw.org music or radio stations.","parameters":{"type":"object","properties":{"query":{"type":"string","description":"artist name, or song title with optional artist; empty for like_current"},"mode":{"type":"string","enum":["artist","song","like_current"]}},"required":["mode"]}}},
 {"type":"function","function":{"name":"now_playing","description":"Say which song is playing now.","parameters":{"type":"object","properties":{}}}},
 {"type":"function","function":{"name":"sleep_sounds","description":"Play relaxing background noise to sleep or concentrate.","parameters":{"type":"object","properties":{"sound":{"type":"string","enum":["white","pink","brown","heartbeat"],"description":"Default brown"},"minutes":{"type":"integer","description":"How long, 0 = until stopped"}}}}}
@@ -119,6 +120,8 @@ func Exec(api API, name, args string) string {
 		return readWatchtower(strArg(a, "week"))
 	case "read_workbook":
 		return readWorkbook(strArg(a, "week"))
+	case "play_morning_worship":
+		return playMorningWorship(strArg(a, "mode"))
 	case "jw_help":
 		return jwHelp
 	case "read_book_study":
@@ -141,7 +144,7 @@ func Exec(api API, name, args string) string {
 			if strings.HasPrefix(t.URL, "yt:") {
 				return "Está sonando " + withArtist(t) + "."
 			}
-			return fmt.Sprintf("Está sonando %s, de %s.", t.Title, name)
+			return fmt.Sprintf("Está sonando %s, de %s.", spoken(t.Title), name)
 		}
 		return "No hay nada sonando de una lista."
 	case "sleep_sounds":

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -219,4 +220,56 @@ func (j *JW) Collection(ctx context.Context, key string) ([]Track, string, error
 		return nil, "", errors.New("collection has no audio")
 	}
 	return out, r.Category.Name, nil
+}
+
+// MorningWorship returns the morning worship programs from jw.org, newest
+// first, each as the smallest MP4 (its AAC audio is played).
+func (j *JW) MorningWorship(ctx context.Context) ([]Track, error) {
+	b, err := j.get(ctx, fmt.Sprintf("%s/categories/S/VODPgmEvtMorningWorship?detailed=1&clientType=www", j.Mediator))
+	if err != nil {
+		return nil, err
+	}
+	var r struct {
+		Category struct {
+			Media []struct {
+				Title     string  `json:"title"`
+				Published string  `json:"firstPublished"`
+				Duration  float64 `json:"duration"`
+				Files     []struct {
+					Mime string `json:"mimetype"`
+					Size int64  `json:"filesize"`
+					URL  string `json:"progressiveDownloadURL"`
+				} `json:"files"`
+			} `json:"media"`
+		} `json:"category"`
+	}
+	if err := json.Unmarshal(b, &r); err != nil {
+		return nil, err
+	}
+	type item struct {
+		t   Track
+		pub string
+	}
+	var items []item
+	for _, m := range r.Category.Media {
+		best := ""
+		var size int64
+		for _, f := range m.Files {
+			if f.Mime == "video/mp4" && f.URL != "" && (best == "" || f.Size < size) {
+				best, size = f.URL, f.Size
+			}
+		}
+		if best != "" {
+			items = append(items, item{Track{Title: m.Title, URL: best, Duration: m.Duration}, m.Published})
+		}
+	}
+	if len(items) == 0 {
+		return nil, errors.New("morning worship: no videos")
+	}
+	sort.SliceStable(items, func(a, b int) bool { return items[a].pub > items[b].pub })
+	out := make([]Track, len(items))
+	for i, it := range items {
+		out[i] = it.t
+	}
+	return out, nil
 }
