@@ -250,3 +250,32 @@ func TestCutQueuedSpeechStopsEachSentenceThatStarts(t *testing.T) {
 		t.Fatal("Reset clears the report for the next listening turn")
 	}
 }
+
+// The playback stays paused while the assistant speaks its answer, which
+// starts after agentd is no longer dispatching (owner, 2026-11-26: "deseo q
+// este en cilencio el audio mientras da la hora").
+func TestDuckWatchHoldsWhileTheAnswerIsSpoken(t *testing.T) {
+	var mu sync.Mutex
+	rec, speaking := false, false
+	ducked := false
+	d := &duckWatch{
+		Poll: 2 * time.Millisecond, Hold: 5 * time.Millisecond,
+		State:    func() (bool, bool, error) { mu.Lock(); defer mu.Unlock(); return rec, false, nil },
+		Speaking: func() bool { mu.Lock(); defer mu.Unlock(); return speaking },
+		Duck:     func(on bool) { mu.Lock(); ducked = on; mu.Unlock() },
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go d.Run(ctx)
+	get := func() bool { mu.Lock(); defer mu.Unlock(); return ducked }
+	set := func(r, s bool) { mu.Lock(); rec, speaking = r, s; mu.Unlock() }
+	set(true, false)
+	waitFor(t, get)
+	set(false, true) // command heard, the answer is being spoken
+	time.Sleep(20 * time.Millisecond)
+	if !get() {
+		t.Fatal("playback resumed while the assistant was still answering")
+	}
+	set(false, false)
+	waitFor(t, func() bool { return !get() })
+}

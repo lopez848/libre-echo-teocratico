@@ -131,9 +131,11 @@ func main() {
 	hold := &voiceHold{}
 	cutter := &speechCutter{Speaking: voice.Speaking,
 		Stop: func() { _ = s.api.Call("POST", "/audio/announce/stop", map[string]any{}, nil) }}
-	go (&duckWatch{Poll: 100 * time.Millisecond, Hold: 600 * time.Millisecond,
-		Duck:  func(on bool) { hold.Set(on); logf("voice hold %v", on) },
-		State: func() (bool, bool, error) { return agentState(*agentSock) },
+	// Hold 1.5 s: agentd leaves 0.4-1.2 s of silence between sentences.
+	go (&duckWatch{Poll: 100 * time.Millisecond, Hold: 1500 * time.Millisecond,
+		Speaking: func() bool { on, err := voice.Speaking(); return err == nil && on },
+		Duck:     func(on bool) { hold.Set(on); logf("voice hold %v", on) },
+		State:    func() (bool, bool, error) { return agentState(*agentSock) },
 		OnListen: func() {
 			cutter.Reset()
 			if s.tail.Speaking() || svc.Reader.Active() {

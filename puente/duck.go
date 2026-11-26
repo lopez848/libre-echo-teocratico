@@ -40,8 +40,11 @@ type duckWatch struct {
 	OnListen func()
 	// WhileListening runs on every poll while agentd is recognizing.
 	WhileListening func()
-	Poll           time.Duration
-	Hold           time.Duration
+	// Speaking keeps an existing hold while the assistant speaks its
+	// answer, which plays after agentd stops dispatching.
+	Speaking func() bool
+	Poll     time.Duration
+	Hold     time.Duration
 }
 
 func (d *duckWatch) Run(ctx context.Context) {
@@ -64,7 +67,7 @@ func (d *duckWatch) Run(ctx context.Context) {
 			d.WhileListening()
 		}
 		wasListening = rec
-		busy := rec || disp
+		busy := rec || disp || (ducked && d.Speaking != nil && d.Speaking())
 		switch {
 		case busy:
 			lastBusy = time.Now()
