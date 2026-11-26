@@ -110,8 +110,9 @@ func main() {
 		YT:      svc.YT,
 	}
 	svc.Player = &Player{AlwaysAdvance: true, Radio: bus, OnEnd: svc.Taste.Record}
+	hold := &voiceHold{}
 	go (&duckWatch{Poll: 150 * time.Millisecond, Hold: 600 * time.Millisecond,
-		Duck: func(on bool) { bus.SetDuck(on); logf("music duck %v", on) },
+		Duck: func(on bool) { hold.Set(on); logf("voice hold %v", on) },
 		Status: func() (bool, error) {
 			if playing, _, _, _ := bus.Status(); !playing {
 				return false, nil

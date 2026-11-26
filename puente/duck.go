@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"math"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -119,4 +120,45 @@ func (a *announceVoice) Speaking() (bool, error) {
 		return false, err
 	}
 	return st.Buses.Announcement || st.State == "announcing", nil
+}
+
+// voiceHold pauses what the bridge is playing while agentd listens to and
+// answers a voice command (wake word or action button), and resumes it
+// after, unless the command paused it ("pausa"), stopped it ("para") or
+// started something else.
+type voiceHold struct {
+	mu    sync.Mutex
+	held  bool
+	radio Radio
+}
+
+func (h *voiceHold) Set(busy bool) {
+	if svc.Player == nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if busy {
+		if h.held || !svc.Player.Active() {
+			return
+		}
+		playing, paused, _, err := svc.Player.Radio.Status()
+		if err != nil || !playing || paused {
+			return
+		}
+		if svc.Player.Radio.Pause() == nil {
+			h.held, h.radio = true, svc.Player.Radio
+		}
+		return
+	}
+	if !h.held {
+		return
+	}
+	h.held = false
+	if pausedPlayer || !svc.Player.Active() || svc.Player.Radio != h.radio {
+		return
+	}
+	if _, paused, _, err := svc.Player.Radio.Status(); err == nil && paused {
+		_ = svc.Player.Radio.Resume()
+	}
 }

@@ -47,6 +47,7 @@ func playOfficial(name string, tracks []Track) {
 		return
 	}
 	svc.Reader.Forget()
+	svc.Player.Stop() // the old music must not come back while the intro is spoken
 	svc.Reader.AfterSilence(func() {
 		if _, err := svc.Player.Start(name, tracks, false); err != nil {
 			logf("official audio: %v", err)

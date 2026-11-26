@@ -93,3 +93,59 @@ func TestAnnounceVoiceReadsTheMixerState(t *testing.T) {
 		t.Fatal("a missing status file is an error")
 	}
 }
+
+// pauseRadioState tracks a paused flag like the bus player does.
+type pauseRadioState struct {
+	fakeRadio
+	paused bool
+}
+
+func (p *pauseRadioState) Pause() error  { p.mu.Lock(); p.paused = true; p.mu.Unlock(); return nil }
+func (p *pauseRadioState) Resume() error { p.mu.Lock(); p.paused = false; p.mu.Unlock(); return nil }
+func (p *pauseRadioState) Status() (bool, bool, string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.playing, p.paused, "", nil
+}
+
+func TestHoldForVoicePausesAndResumes(t *testing.T) {
+	old := *svc
+	defer func() { *svc = old; pausedPlayer = false }()
+	r := &pauseRadioState{}
+	svc.Player = &Player{Radio: r, Poll: time.Hour}
+	svc.Player.Start("x", []Track{{URL: "u1"}}, false)
+	h := &voiceHold{}
+
+	h.Set(true) // the assistant starts listening
+	if _, paused, _, _ := r.Status(); !paused {
+		t.Fatal("must pause while the assistant listens")
+	}
+	h.Set(false) // a quick question: go on
+	if _, paused, _, _ := r.Status(); paused {
+		t.Fatal("must resume after the turn")
+	}
+
+	h.Set(true)
+	pausedPlayer = true // the command was "pausa"
+	h.Set(false)
+	if _, paused, _, _ := r.Status(); !paused {
+		t.Fatal("after \"pausa\" it must stay paused")
+	}
+	pausedPlayer = false
+	r.Resume()
+
+	h.Set(true)
+	svc.Player.Stop() // the command was "para"
+	h.Set(false)
+	if r.count() != 1 || svc.Player.Active() {
+		t.Fatal("after \"para\" nothing plays again")
+	}
+
+	r2 := &pauseRadioState{}
+	svc.Player = &Player{Radio: r2, Poll: time.Hour}
+	h.Set(true) // nothing playing: nothing to pause or resume
+	h.Set(false)
+	if _, paused, _, _ := r2.Status(); paused {
+		t.Fatal("idle player must be left alone")
+	}
+}
