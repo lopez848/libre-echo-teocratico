@@ -625,6 +625,7 @@ func firstNonEmpty(a, b string) string {
 type Services struct {
 	JW       *JW
 	YT       *YouTube
+	Taste    *Taste
 	Player   *Player
 	Location *time.Location
 	Now      func() time.Time
@@ -716,7 +717,7 @@ func playYouTube(query, mode string) string {
 			logf("youtube similar: %v", err)
 			return "No pude traer canciones parecidas de YouTube."
 		}
-		queue := withoutTrack(similar, cur.URL)
+		queue := svc.Taste.Rank(svc.Taste.Filter(withoutTrack(similar, cur.URL), ""))
 		first, err := svc.Player.Start("canciones parecidas a "+spokenTitle(cur), queue, false)
 		if err != nil {
 			return failed(err)
@@ -731,7 +732,7 @@ func playYouTube(query, mode string) string {
 			logf("youtube artist: %v", err)
 			return "No encontré canciones de " + query + " en YouTube."
 		}
-		first, err := svc.Player.Start("canciones de "+query, tracks, true)
+		first, err := svc.Player.Start("canciones de "+query, svc.Taste.Filter(tracks, query), true)
 		if err != nil {
 			return failed(err)
 		}
@@ -748,7 +749,7 @@ func playYouTube(query, mode string) string {
 		song := hits[0]
 		queue := []Track{song}
 		if similar, err := svc.YT.Similar(strings.TrimPrefix(song.URL, "yt:")); err == nil {
-			queue = append(queue, withoutTrack(similar, song.URL)...)
+			queue = append(queue, svc.Taste.Rank(svc.Taste.Filter(withoutTrack(similar, song.URL), ""))...)
 		} else {
 			logf("youtube similar: %v", err)
 		}

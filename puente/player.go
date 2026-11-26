@@ -89,6 +89,9 @@ type Player struct {
 	// AlwaysAdvance moves to the next track whenever one ends, even early
 	// (a bad file must not end the whole list).
 	AlwaysAdvance bool
+	// OnEnd, when set, hears about each track that played to the end
+	// (finished) or was skipped with Next before its end.
+	OnEnd func(t Track, finished bool)
 
 	mu      sync.Mutex
 	queue   []Track
@@ -137,6 +140,12 @@ func (p *Player) Next(delta int) (Track, bool, error) {
 	if !p.active {
 		return Track{}, false, nil
 	}
+	if delta > 0 && p.OnEnd != nil {
+		t := p.queue[p.idx]
+		if !p.reachedEnd(t) {
+			p.OnEnd(t, false)
+		}
+	}
 	n := p.idx + delta
 	if n < 0 {
 		n = 0
@@ -147,6 +156,12 @@ func (p *Player) Next(delta int) (Track, bool, error) {
 	}
 	p.idx = n
 	return p.queue[n], true, p.playLocked()
+}
+
+// reachedEnd reports whether t played (almost) to the end; unknown lengths
+// count as played. p.mu must be held.
+func (p *Player) reachedEnd(t Track) bool {
+	return t.Duration <= 0 || time.Since(p.started).Seconds() >= t.Duration*0.85-5
 }
 
 func (p *Player) Current() (Track, string, bool) {
@@ -202,6 +217,10 @@ func (p *Player) watch(gen int) {
 		quiet = 0
 		t := p.queue[p.idx]
 		elapsed := time.Since(p.started).Seconds()
+		// A track that ends early is a bad file or stream, not a skip.
+		if p.OnEnd != nil && p.reachedEnd(t) {
+			p.OnEnd(t, true)
+		}
 		if !p.AlwaysAdvance && t.Duration > 0 && elapsed < t.Duration*0.85-5 {
 			logf("player: stopped early (%.0fs of %.0fs), dropping queue", elapsed, t.Duration)
 			p.active = false

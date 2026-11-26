@@ -61,6 +61,7 @@ func main() {
 	upstream := flag.String("upstream", "https://integrate.api.nvidia.com/v1", "upstream OpenAI-compatible base URL")
 	device := flag.String("device", "http://127.0.0.1:8080/api/v1", "LibreEcho web API base")
 	creds := flag.String("creds", "/data/libreecho/local/puente.creds", "file with device username and password")
+	tasteFile := flag.String("taste", "/data/libreecho/local/puente-taste.json", "file where the bridge learns which YouTube songs and artists the owner plays or skips")
 	model := flag.String("model", "", "override model (default: the one agentd sends)")
 	flag.BoolVar(&verbose, "v", false, "log transcripts")
 	wyAddr := flag.String("wyoming", "", "serve Wyoming TTS on this address (e.g. 127.0.0.1:10200); empty disables")
@@ -93,6 +94,7 @@ func main() {
 	}
 	svc.JW = &JW{HTTP: &http.Client{Timeout: 10 * time.Second}, Location: svc.Location,
 		WOLBase: "https://wol.jw.org", Mediator: "https://b.jw-cdn.org/apis/mediator/v1"}
+	svc.Taste = LoadTaste(*tasteFile)
 	svc.YT = &YouTube{HTTP: &http.Client{Timeout: 15 * time.Second},
 		Web: "https://www.youtube.com", Music: "https://music.youtube.com"}
 	radiod := &RadioSock{Path: *radioSock}
@@ -101,7 +103,7 @@ func main() {
 		HTTP:    &http.Client{Timeout: 0},
 		Release: func() { _ = radiod.Stop() },
 		YT:      svc.YT,
-	}}
+	}, OnEnd: svc.Taste.Record}
 	user, pass, err := LoadCreds(*creds)
 	if err != nil {
 		log.Fatalf("credentials: %v", err)
