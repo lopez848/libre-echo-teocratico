@@ -94,7 +94,7 @@ Nunca en el repositorio público ni en las versiones:
   compartirla entre la flota, vive solo en cada dispositivo, jamás en un release.
 - El aprendizaje de gustos (`puente-taste.json`) también es dato local de cada casa.
 
-**Cómo:** una carpeta privada aparte (NO `libreecho-mia`, que es MIT y pública),
+**Cómo:** una carpeta privada aparte (NO `libre-echo-teocratico`, que es MIT y pública),
 p. ej. `flota/`, con un listado de hogares: nombre, serial ADB, zona horaria, tema
 ntfy. Un script de aprovisionamiento (fase 3) lo lee y genera los ficheros al dar de
 alta cada parlante.

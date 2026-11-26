@@ -1,4 +1,4 @@
-# libreecho-mia
+# Libre Echo Teocrático
 
 Spanish voice assistant ("Mia") for an Amazon Echo Dot (2nd gen, codename `biscuit`) running
 LibreEcho v0.14.6. Configuration and a local bridge only: no reflash,

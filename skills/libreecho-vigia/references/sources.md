@@ -2,7 +2,7 @@
 
 | Component | Used for | GitHub |
 |-----------|----------|--------|
-| puente, vigia | Bridge and watcher (this project) | `lopez848/libreecho-mia` |
+| puente, vigia | Bridge and watcher (this project) | `lopez848/libre-echo-teocratico` |
 | LibreEcho OS | Device OS, agentd, sttd, ttsd, radiod, web API | `aslater3/LibreEcho` (also `aslater3/LibreEcho-Platform`, `aslater3/LibreEcho-UI`, `aslater3/LibreEcho-Linux-6.1`) |
 | go-mp3 | MP3 decoding in BusPlayer | `hajimehoshi/go-mp3` (archived: read-only history) |
 | sherpa-onnx | STT/TTS runtime used by sttd/ttsd models | `k2-fsa/sherpa-onnx` |
