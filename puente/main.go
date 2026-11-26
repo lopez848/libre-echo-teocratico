@@ -69,6 +69,7 @@ func main() {
 	ttsVoice := flag.String("tts-voice", "Magpie-Multilingual.ES-US.Mia", "NVIDIA Magpie voice")
 	keyFile := flag.String("key-file", "/data/libreecho/secrets/openai-codex.json", "JSON file holding the NVIDIA api_key")
 	localTTS := flag.String("local-tts", "/run/libreecho/tts-local.sock", "fallback local ttsd socket")
+	agentSock := flag.String("agent-sock", "/run/libreecho/agent.sock", "agentd socket, polled to lower the music while it listens")
 	mainTTS := flag.String("main-tts", "/run/libreecho/tts.sock", "main ttsd socket, used to speak the part of a long reply that agentd drops")
 	tz := flag.String("tz", "America/Chicago", "time zone for dates (daily text)")
 	radioSock := flag.String("radio", "/run/libreecho/radio.sock", "radiod socket for music queues")
@@ -101,12 +102,21 @@ func main() {
 	svc.YT = &YouTube{HTTP: &http.Client{Timeout: 15 * time.Second},
 		Web: "https://www.youtube.com", Music: "https://music.youtube.com"}
 	radiod := &RadioSock{Path: *radioSock}
-	svc.Player = &Player{AlwaysAdvance: true, Radio: &BusPlayer{
+	bus := &BusPlayer{
 		Bus:     "/run/libreecho-audio/media.pcm",
 		HTTP:    &http.Client{Timeout: 0},
 		Release: func() { _ = radiod.Stop() },
 		YT:      svc.YT,
-	}, OnEnd: svc.Taste.Record}
+	}
+	svc.Player = &Player{AlwaysAdvance: true, Radio: bus, OnEnd: svc.Taste.Record}
+	go (&duckWatch{Poll: 150 * time.Millisecond, Hold: 600 * time.Millisecond,
+		Duck: func(on bool) { bus.SetDuck(on); logf("music duck %v", on) },
+		Status: func() (bool, error) {
+			if playing, _, _, _ := bus.Status(); !playing {
+				return false, nil
+			}
+			return agentBusy(*agentSock)
+		}}).Run(context.Background())
 	user, pass, err := LoadCreds(*creds)
 	if err != nil {
 		log.Fatalf("credentials: %v", err)

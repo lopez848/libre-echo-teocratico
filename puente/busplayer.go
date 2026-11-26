@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -26,6 +27,7 @@ type BusPlayer struct {
 	Release func()   // frees the bus (stops radiod) before writing
 	YT      *YouTube // resolves yt:<videoId> tracks to AAC audio
 
+	duck    atomic.Int32 // 1 while agentd listens or answers
 	mu      sync.Mutex
 	cancel  context.CancelFunc
 	playing bool
@@ -206,7 +208,7 @@ func (b *BusPlayer) stream(ctx context.Context, url string) error {
 			if src.Channels == 1 {
 				chunk = toStereo(chunk)
 			}
-			pcm := rs.process(chunk)
+			pcm := scalePCM(rs.process(chunk), b.gain())
 			if limit >= 0 {
 				if int64(len(pcm)) > limit {
 					pcm = pcm[:limit-limit%4]
