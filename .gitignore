@@ -23,3 +23,6 @@ secrets/
 
 # Local agent skill registry
 .atl/
+
+wakeword/data/
+wakeword/.venv/
