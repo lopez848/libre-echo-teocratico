@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -75,7 +76,19 @@ func main() {
 	tz := flag.String("tz", "America/Chicago", "time zone for dates (daily text)")
 	radioSock := flag.String("radio", "/run/libreecho/radio.sock", "radiod socket for music queues")
 	ttsTest := flag.String("tts-test", "", "synthesize this text with the cloud voice, write raw PCM to stdout and exit")
+	thermoFile := flag.String("thermostat", "/data/libreecho/local/thermostat.json", "HomeKit pairing of the thermostat (mode 600)")
+	hapPair := flag.String("hap-pair", "", "pair with the HomeKit thermostat at host:port, reading its 8-digit setup code from stdin, then exit")
 	flag.Parse()
+	if *hapPair != "" {
+		code, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		if err := PairThermostat(*thermoFile, *hapPair, strings.TrimSpace(code)); err != nil {
+			fmt.Fprintln(os.Stderr, "hap-pair:", err)
+			os.Exit(1)
+		}
+		fmt.Println("paired; saved", *thermoFile)
+		return
+	}
+	svc.Thermo = &Thermostat{File: *thermoFile}
 	if *ttsTest != "" {
 		r := &Riva{URL: "https://grpc.nvcf.nvidia.com/nvidia.riva.tts.RivaSpeechSynthesis/Synthesize",
 			FunctionID: "877104f7-e885-42b9-8de8-f6e4c6303969", KeyFile: *keyFile, Voice: *ttsVoice,

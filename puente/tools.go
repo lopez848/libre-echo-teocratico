@@ -44,6 +44,8 @@ var toolSpecs = json.RawMessage(`[
 {"type":"function","function":{"name":"play_jw_music","description":"Play a music section from jw.org in random order, e.g. 'reproduce desde jw.org Música internacional'.","parameters":{"type":"object","properties":{"collection":{"type":"string","enum":["Música internacional","Canciones originales","Cantemos con gozo a Jehová (para las reuniones)","Cantemos con gozo a Jehová (cantadas)","Cantemos con gozo a Jehová (instrumental)","Cantemos a Jehová (coro y orquesta)","Canciones para niños","Melodías del Reino"]}},"required":["collection"]}}},
 {"type":"function","function":{"name":"play_morning_worship","description":"Play the morning worship programs (adoración matutina) from jw.org: mode reciente for the most recent one, aleatorio (default) for many in random order.","parameters":{"type":"object","properties":{"mode":{"type":"string","enum":["aleatorio","reciente"]}}}}},
 {"type":"function","function":{"name":"play_youtube","description":"Play music from YouTube. mode artist: only songs by one artist ('pon canciones de Juan Luis Guerra'); mode song: one specific song, then similar songs ('pon Bachata Rosa', 'pon la canción Provenza de Karol G'); mode like_current: songs similar to the one playing now ('pon algo parecido a esto'). Not for jw.org music or radio stations.","parameters":{"type":"object","properties":{"query":{"type":"string","description":"artist name, or song title with optional artist; empty for like_current"},"mode":{"type":"string","enum":["artist","song","like_current"]}},"required":["mode"]}}},
+{"type":"function","function":{"name":"thermostat_status","description":"Say the home temperature and what the thermostat (air conditioning / heating) is doing ('qué temperatura hace en la casa', '¿está prendido el aire?').","parameters":{"type":"object","properties":{}}}},
+{"type":"function","function":{"name":"set_thermostat","description":"Control the home thermostat: mode off (apaga el aire/la calefacción), heat (calefacción), cool (aire acondicionado), auto; and/or the target temperature in the thermostat's degrees ('pon el aire a 72', 'sube la calefacción a 70').","parameters":{"type":"object","properties":{"mode":{"type":"string","enum":["off","heat","cool","auto"]},"temperature":{"type":"number"}}}}},
 {"type":"function","function":{"name":"now_playing","description":"Say which song is playing now.","parameters":{"type":"object","properties":{}}}},
 {"type":"function","function":{"name":"sleep_sounds","description":"Play relaxing background noise to sleep or concentrate.","parameters":{"type":"object","properties":{"sound":{"type":"string","enum":["white","pink","brown","heartbeat"],"description":"Default brown"},"minutes":{"type":"integer","description":"How long, 0 = until stopped"}}}}}
 ]`)
@@ -136,6 +138,11 @@ func Exec(api API, name, args string) string {
 		return readParagraph(intArg(a, "paragraph"))
 	case "play_youtube":
 		return playYouTube(strArg(a, "query"), strArg(a, "mode"))
+	case "thermostat_status":
+		return thermostatStatus()
+	case "set_thermostat":
+		t, ok := a["temperature"].(float64)
+		return setThermostat(strArg(a, "mode"), t, ok)
 	case "now_playing":
 		if svc.Player == nil {
 			return "No hay nada sonando de una lista."
@@ -656,6 +663,7 @@ type Services struct {
 	Reader   *Reader
 	Audio    *audioState // official recording last started, for paragraph jumps
 	Player   *Player
+	Thermo   *Thermostat
 	Location *time.Location
 	Now      func() time.Time
 }

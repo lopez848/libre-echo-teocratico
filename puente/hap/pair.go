@@ -227,4 +227,3 @@ func verify(conn net.Conn, br *bufio.Reader, p *Pairing) (write, read []byte, er
 	return hkdf32(shared, "Control-Salt", "Control-Write-Encryption-Key"),
 		hkdf32(shared, "Control-Salt", "Control-Read-Encryption-Key"), nil
 }
-
