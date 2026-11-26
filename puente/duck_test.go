@@ -185,3 +185,68 @@ func TestDuckWatchCallsOnListenOnce(t *testing.T) {
 	mu.Unlock()
 	waitFor(t, func() bool { return get() == 2 })
 }
+
+// agentd speaks a reply as a queue of sentences and starts the next one as
+// soon as the current one is stopped (2026-11-26 logs: "stop speech
+// requested" then "speak requested (64 chars)" in the same second), so the
+// bridge must keep cutting while the assistant listens until the queue is
+// empty.
+func TestDuckWatchCallsWhileListeningOnEveryPoll(t *testing.T) {
+	var mu sync.Mutex
+	rec := false
+	ticks := 0
+	d := &duckWatch{
+		Poll: 2 * time.Millisecond, Hold: 5 * time.Millisecond,
+		State:          func() (bool, bool, error) { mu.Lock(); defer mu.Unlock(); return rec, false, nil },
+		Duck:           func(bool) {},
+		WhileListening: func() { mu.Lock(); ticks++; mu.Unlock() },
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go d.Run(ctx)
+	get := func() int { mu.Lock(); defer mu.Unlock(); return ticks }
+	time.Sleep(10 * time.Millisecond)
+	if get() != 0 {
+		t.Fatal("not called while the assistant is idle")
+	}
+	mu.Lock()
+	rec = true
+	mu.Unlock()
+	waitFor(t, func() bool { return get() >= 3 })
+	mu.Lock()
+	rec = false
+	mu.Unlock()
+	time.Sleep(6 * time.Millisecond)
+	n := get()
+	time.Sleep(10 * time.Millisecond)
+	if get() != n {
+		t.Fatal("must stop once the assistant stops listening")
+	}
+}
+
+func TestCutQueuedSpeechStopsEachSentenceThatStarts(t *testing.T) {
+	queue := 3 // sentences agentd still has to say
+	speaking := true
+	stops := 0
+	c := &speechCutter{
+		Speaking: func() (bool, error) { return speaking, nil },
+		Stop: func() {
+			stops++
+			queue--
+			speaking = queue > 0 // agentd starts the next sentence at once
+		},
+	}
+	for i := 0; i < 10; i++ {
+		c.Tick()
+	}
+	if stops != 3 || speaking {
+		t.Fatalf("stops=%d speaking=%v, want every queued sentence cut", stops, speaking)
+	}
+	if !c.Cut() {
+		t.Fatal("Cut must report that it stopped something")
+	}
+	c.Reset()
+	if c.Cut() {
+		t.Fatal("Reset clears the report for the next listening turn")
+	}
+}

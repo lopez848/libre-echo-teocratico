@@ -129,15 +129,24 @@ func main() {
 	// listens or answers, and cut the bridge's own speech (long reply tail,
 	// reading) the moment it starts listening.
 	hold := &voiceHold{}
+	cutter := &speechCutter{Speaking: voice.Speaking,
+		Stop: func() { _ = s.api.Call("POST", "/audio/announce/stop", map[string]any{}, nil) }}
 	go (&duckWatch{Poll: 100 * time.Millisecond, Hold: 600 * time.Millisecond,
 		Duck:  func(on bool) { hold.Set(on); logf("voice hold %v", on) },
 		State: func() (bool, bool, error) { return agentState(*agentSock) },
 		OnListen: func() {
+			cutter.Reset()
 			if s.tail.Speaking() || svc.Reader.Active() {
 				s.tail.Cancel()
 				svc.Reader.Stop() // keeps the place: "sigue" goes on
-				_ = s.api.Call("POST", "/audio/announce/stop", map[string]any{}, nil)
 				logf("listening: stopped the bridge's speech")
+			}
+		},
+		WhileListening: func() {
+			was := cutter.Cut()
+			cutter.Tick()
+			if !was && cutter.Cut() {
+				logf("listening: cutting the reply that was playing")
 			}
 		}}).Run(context.Background())
 	if *wyAddr != "" {

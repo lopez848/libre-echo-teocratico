@@ -38,8 +38,10 @@ type duckWatch struct {
 	State    func() (recognizing, dispatching bool, err error)
 	Duck     func(on bool)
 	OnListen func()
-	Poll     time.Duration
-	Hold     time.Duration
+	// WhileListening runs on every poll while agentd is recognizing.
+	WhileListening func()
+	Poll           time.Duration
+	Hold           time.Duration
 }
 
 func (d *duckWatch) Run(ctx context.Context) {
@@ -58,6 +60,9 @@ func (d *duckWatch) Run(ctx context.Context) {
 		if rec && !wasListening && d.OnListen != nil {
 			d.OnListen()
 		}
+		if rec && d.WhileListening != nil {
+			d.WhileListening()
+		}
 		wasListening = rec
 		busy := rec || disp
 		switch {
@@ -73,6 +78,31 @@ func (d *duckWatch) Run(ctx context.Context) {
 		}
 	}
 }
+
+// speechCutter empties agentd's reply queue while the assistant listens.
+// agentd speaks a reply one sentence at a time and starts the next as soon
+// as the current one is stopped; while any reply plays it drops new voice
+// commands ("a voice response is already playing"). Stopping every sentence
+// that starts during the user's command drains the queue before the
+// transcript is ready.
+type speechCutter struct {
+	Speaking func() (bool, error)
+	Stop     func()
+	cut      bool
+}
+
+// Tick stops the announcement being spoken, if any.
+func (c *speechCutter) Tick() {
+	if on, err := c.Speaking(); err == nil && on {
+		c.Stop()
+		c.cut = true
+	}
+}
+
+// Cut reports whether Tick stopped something since the last Reset.
+func (c *speechCutter) Cut() bool { return c.cut }
+
+func (c *speechCutter) Reset() { c.cut = false }
 
 // agentState asks agentd whether it is recognizing or answering a turn.
 func agentState(sock string) (bool, bool, error) {
