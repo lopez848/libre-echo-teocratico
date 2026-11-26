@@ -97,3 +97,29 @@ func TestPauseWithNothingPlaying(t *testing.T) {
 		t.Fatalf("resume: %q", got)
 	}
 }
+
+func TestWakeWordInsideTheCommandIsIgnored(t *testing.T) {
+	for _, q := range []string{"alexa para", "Alexa, stop.", "Oye Mía, para", "oye mia pausa"} {
+		s, _ := controlServer(t)
+		svc.Reader.Start(longRead, 0)
+		got := say(s, q)
+		if got != "Listo." && got != "En pausa." {
+			t.Fatalf("%q -> %q", q, got)
+		}
+	}
+	if got := stripWake("Alexa, pon canciones de Fonseca"); got != "pon canciones de Fonseca" {
+		t.Fatalf("stripWake: %q", got)
+	}
+	if got := stripWake("alexander el grande"); got != "alexander el grande" {
+		t.Fatalf("only the whole wake word is removed: %q", got)
+	}
+}
+
+func TestEmptyTranscriptDoesNotGreet(t *testing.T) {
+	s, _ := controlServer(t)
+	for _, q := range []string{".", "", " ? ", "alexa"} {
+		if got := say(s, q); got != "No te escuché bien." {
+			t.Fatalf("%q -> %q", q, got)
+		}
+	}
+}

@@ -111,7 +111,7 @@ func main() {
 	}
 	svc.Player = &Player{AlwaysAdvance: true, Radio: bus, OnEnd: svc.Taste.Record}
 	hold := &voiceHold{}
-	go (&duckWatch{Poll: 150 * time.Millisecond, Hold: 600 * time.Millisecond,
+	go (&duckWatch{Poll: 50 * time.Millisecond, Hold: 600 * time.Millisecond,
 		Duck: func(on bool) { hold.Set(on); logf("voice hold %v", on) },
 		Status: func() (bool, error) {
 			if playing, _, _, _ := bus.Status(); !playing {
@@ -190,7 +190,7 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 	// After a quick question or a false wake word, go back to the reading,
 	// as speakers do with music. Not after a stop word, or when the turn
 	// started music or touched the reading itself.
-	if reading && !isControl(lastUser(in.Messages)) && (svc.Player == nil || !svc.Player.Active()) {
+	if reading && !isControl(stripWake(lastUser(in.Messages))) && (svc.Player == nil || !svc.Player.Active()) {
 		svc.Reader.ResumeIfUntouched(token)
 	}
 }
@@ -212,10 +212,11 @@ var stopWords = map[string]bool{
 
 // answer returns the sentence to speak for one turn.
 func (s *server) answer(ctx context.Context, in inbound, auth string) string {
-	user := strings.TrimSpace(lastUser(in.Messages))
-	if user == "" {
+	user := stripWake(strings.TrimSpace(lastUser(in.Messages)))
+	if fold(user) == "" { // nothing heard (the recognizer writes ".")
 		return "No te escuché bien."
 	}
+	setLastUser(in.Messages, user)
 	if stopWords[fold(user)] {
 		svc.Reader.Forget() // "para" ends the reading for good
 		pausedPlayer = false
