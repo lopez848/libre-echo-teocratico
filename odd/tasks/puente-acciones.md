@@ -21,7 +21,7 @@ Branch: none (not a git repo; deployed via adb). Test runner: `go test ./...` in
 - T6 S7 YouTube playlists from the Echo with a Go library (artist-only lists, similar songs after a specific song, learn from plays/skips) — in progress (split below)
   - T6a S7 build puente with the patched go1.27.4 toolchain (tools/go-echo), deploy, check no regression — inline — Risk item 5 (toolchain) — DONE 2026-11-25 (go.mod go 1.27; tests green; deployed with backup puente.bak-go121-20261125; live: time answer, set/cancel timer, list empty; RSS 11 MB)
   - T6b S7 youtube.go: YT Music search, artist songs, mix (next RD<id>), ios_producer audio URL, ranged HTTP ReadSeeker; httptest unit tests — inline — DONE 2026-11-25 (RED->GREEN 6 tests; live from PC: artist 25 songs all Juan Luis Guerra, similar 50 mixed artists, 4 MB audio in 0.3 s via ranged GETs)
-  - T6c S7 BusPlayer plays yt:<id> tracks: m4a demux + AAC-LC decode (go-m4a/go-aac), mono/stereo, resample to 48 kHz — inline
+  - T6c S7 BusPlayer plays yt:<id> tracks: m4a demux + AAC-LC decode (go-m4a/go-aac), mono/stereo, resample to 48 kHz — inline — DONE 2026-11-26 (RED->GREEN stream test for stereo and mono m4a + error cases; on the Echo AAC-LC decode runs 39x realtime, 3% of one core)
   - T6d S7 tool play_youtube {query, mode artist|similar}, Spanish phrasing, deploy, live test — inline
   - T6e S7 learn taste: record finished/skipped tracks on the device, drop skipped songs/artists from mixes — inline
 - T7 S8 Self-healing skill: verify after every failure, alert to fix it, search GitHub for an existing fix first — DONE 2026-11-25 (vigia service + ntfy; skill skills/libreecho-vigia; 10 unit tests; live outage test detected/alerted/recovered)

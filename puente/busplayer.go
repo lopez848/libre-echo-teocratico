@@ -8,11 +8,13 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/hajimehoshi/go-mp3"
+	"github.com/tphakala/go-m4a/aacm4a"
 )
 
 // BusPlayer decodes MP3 itself and writes 48 kHz 16-bit stereo PCM to the
@@ -22,6 +24,7 @@ type BusPlayer struct {
 	Bus     string // /run/libreecho-audio/media.pcm
 	HTTP    *http.Client
 	Release func() // frees the bus (stops radiod) before writing
+	YT      *YouTube // resolves yt:<videoId> tracks to AAC audio
 
 	mu      sync.Mutex
 	cancel  context.CancelFunc
@@ -91,22 +94,68 @@ func (b *BusPlayer) Status() (bool, bool, string, error) {
 	return b.playing, b.paused, b.url, nil
 }
 
-func (b *BusPlayer) stream(ctx context.Context, url string) error {
+// pcmSource is decoded s16le interleaved audio at Rate with Channels.
+type pcmSource struct {
+	R        io.Reader
+	Rate     int
+	Channels int
+	Close    func()
+}
+
+// open decodes an MP3 URL or a yt:<videoId> track (AAC in m4a).
+func (b *BusPlayer) open(ctx context.Context, url string) (*pcmSource, error) {
+	if id, ok := strings.CutPrefix(url, "yt:"); ok {
+		if b.YT == nil {
+			return nil, fmt.Errorf("no YouTube client for %s", url)
+		}
+		u, err := b.YT.AudioURL(id)
+		if err != nil {
+			return nil, err
+		}
+		rr := &rangeReader{HTTP: b.HTTP, URL: u, Chunk: 1 << 20, Ctx: ctx}
+		dec, info, err := aacm4a.NewDecoder(rr)
+		if err != nil {
+			return nil, fmt.Errorf("aac %s: %w", id, err)
+		}
+		return &pcmSource{R: dec, Rate: info.SampleRate, Channels: info.Channels, Close: func() {}}, nil
+	}
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	resp, err := b.HTTP.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("HTTP %d for %s", resp.StatusCode, url)
+		resp.Body.Close()
+		return nil, fmt.Errorf("HTTP %d for %s", resp.StatusCode, url)
 	}
 	dec, err := mp3.NewDecoder(resp.Body)
 	if err != nil {
-		return fmt.Errorf("mp3: %w", err)
+		resp.Body.Close()
+		return nil, fmt.Errorf("mp3: %w", err)
+	}
+	return &pcmSource{R: dec, Rate: dec.SampleRate(), Channels: 2, Close: func() { resp.Body.Close() }}, nil
+}
+
+// toStereo duplicates mono s16le samples into both channels.
+func toStereo(mono []byte) []byte {
+	out := make([]byte, 0, len(mono)*2)
+	for i := 0; i+1 < len(mono); i += 2 {
+		out = append(out, mono[i], mono[i+1], mono[i], mono[i+1])
+	}
+	return out
+}
+
+func (b *BusPlayer) stream(ctx context.Context, url string) error {
+	src, err := b.open(ctx, url)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	if src.Channels != 1 && src.Channels != 2 {
+		return fmt.Errorf("unsupported channel count %d", src.Channels)
 	}
 	// O_NONBLOCK fails fast when nobody reads the bus; the file is then
 	// driven by the runtime poller, so writes still wait for space.
@@ -115,8 +164,9 @@ func (b *BusPlayer) stream(ctx context.Context, url string) error {
 		return fmt.Errorf("open bus: %w", err)
 	}
 	defer out.Close()
-	rs := &resampler{from: dec.SampleRate(), to: 48000}
-	buf := make([]byte, 4096*4)
+	rs := &resampler{from: src.Rate, to: 48000}
+	frame := 2 * src.Channels
+	buf := make([]byte, 4096*frame)
 	for {
 		if ctx.Err() != nil {
 			return nil
@@ -128,9 +178,13 @@ func (b *BusPlayer) stream(ctx context.Context, url string) error {
 			case <-time.After(200 * time.Millisecond):
 			}
 		}
-		n, err := io.ReadFull(dec, buf)
-		if n > 0 {
-			if _, werr := out.Write(rs.process(buf[:n-n%4])); werr != nil {
+		n, err := io.ReadFull(src.R, buf)
+		if n -= n % frame; n > 0 {
+			chunk := buf[:n]
+			if src.Channels == 1 {
+				chunk = toStereo(chunk)
+			}
+			if _, werr := out.Write(rs.process(chunk)); werr != nil {
 				return fmt.Errorf("write bus: %w", werr)
 			}
 		}
