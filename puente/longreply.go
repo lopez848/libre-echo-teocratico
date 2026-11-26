@@ -52,6 +52,17 @@ type tailSpeaker struct {
 
 	mu     sync.Mutex
 	cancel context.CancelFunc
+	gen    int
+}
+
+// Speaking reports whether a long reply tail is pending or being spoken.
+func (t *tailSpeaker) Speaking() bool {
+	if t == nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.cancel != nil
 }
 
 func (t *tailSpeaker) Cancel() {
@@ -74,9 +85,18 @@ func (t *tailSpeaker) Start(pieces []string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.mu.Lock()
 	t.cancel = cancel
+	t.gen++
+	gen := t.gen
 	t.mu.Unlock()
 	go func() {
-		defer cancel()
+		defer func() {
+			cancel()
+			t.mu.Lock()
+			if t.gen == gen {
+				t.cancel = nil // done: nothing pending any more
+			}
+			t.mu.Unlock()
+		}()
 		if !t.waitSilence(ctx) {
 			return
 		}

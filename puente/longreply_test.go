@@ -140,3 +140,17 @@ func TestChatSendsHeadToAgentdAndSpeaksTheRest(t *testing.T) {
 		t.Fatal("a new turn must cancel the pending tail")
 	}
 }
+
+func TestTailSpeakerSpeakingClearsWhenDone(t *testing.T) {
+	v := &fakeVoice{}
+	ts := &tailSpeaker{Voice: v, Poll: 2 * time.Millisecond, Idle: 5 * time.Millisecond, StartWait: 5 * time.Millisecond}
+	if ts.Speaking() {
+		t.Fatal("idle at start")
+	}
+	ts.Start([]string{"Uno.", "Dos."})
+	if !ts.Speaking() {
+		t.Fatal("pending right after Start")
+	}
+	waitFor(t, func() bool { return len(v.said()) == 2 })
+	waitFor(t, func() bool { return !ts.Speaking() })
+}

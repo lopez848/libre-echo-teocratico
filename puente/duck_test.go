@@ -33,8 +33,8 @@ func TestDuckWatchFollowsTheAssistant(t *testing.T) {
 	var calls []bool
 	d := &duckWatch{
 		Poll: 2 * time.Millisecond, Hold: 20 * time.Millisecond,
-		Status: func() (bool, error) { mu.Lock(); defer mu.Unlock(); return listening, nil },
-		Duck:   func(on bool) { mu.Lock(); calls = append(calls, on); mu.Unlock() },
+		State: func() (bool, bool, error) { mu.Lock(); defer mu.Unlock(); return listening, false, nil },
+		Duck:  func(on bool) { mu.Lock(); calls = append(calls, on); mu.Unlock() },
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -148,4 +148,40 @@ func TestHoldForVoicePausesAndResumes(t *testing.T) {
 	if _, paused, _, _ := r2.Status(); paused {
 		t.Fatal("idle player must be left alone")
 	}
+}
+
+// When the assistant starts listening (button or wake word), the bridge's
+// own speech must stop, or agentd drops the command as "a voice response is
+// already playing".
+func TestDuckWatchCallsOnListenOnce(t *testing.T) {
+	var mu sync.Mutex
+	rec := false
+	listens := 0
+	d := &duckWatch{
+		Poll: 2 * time.Millisecond, Hold: 5 * time.Millisecond,
+		State:    func() (bool, bool, error) { mu.Lock(); defer mu.Unlock(); return rec, false, nil },
+		Duck:     func(bool) {},
+		OnListen: func() { mu.Lock(); listens++; mu.Unlock() },
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go d.Run(ctx)
+	get := func() int { mu.Lock(); defer mu.Unlock(); return listens }
+	time.Sleep(10 * time.Millisecond)
+	mu.Lock()
+	rec = true
+	mu.Unlock()
+	waitFor(t, func() bool { return get() == 1 })
+	time.Sleep(15 * time.Millisecond)
+	if get() != 1 {
+		t.Fatal("once per listening turn")
+	}
+	mu.Lock()
+	rec = false
+	mu.Unlock()
+	time.Sleep(10 * time.Millisecond)
+	mu.Lock()
+	rec = true
+	mu.Unlock()
+	waitFor(t, func() bool { return get() == 2 })
 }

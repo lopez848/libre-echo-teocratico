@@ -30,17 +30,20 @@ func scalePCM(in []byte, gain float64) []byte {
 	return out
 }
 
-// duckWatch polls whether agentd is busy with a voice turn and ducks the
-// music while it is, holding the duck for a moment after.
+// duckWatch polls agentd's voice turn state. While it listens or answers,
+// Duck(true) holds the bridge's playback (released a moment after); when it
+// starts listening, OnListen stops the bridge's own speech so the command
+// is not dropped as "a voice response is already playing".
 type duckWatch struct {
-	Status func() (busy bool, err error)
-	Duck   func(on bool)
-	Poll   time.Duration
-	Hold   time.Duration
+	State    func() (recognizing, dispatching bool, err error)
+	Duck     func(on bool)
+	OnListen func()
+	Poll     time.Duration
+	Hold     time.Duration
 }
 
 func (d *duckWatch) Run(ctx context.Context) {
-	ducked := false
+	ducked, wasListening := false, false
 	var lastBusy time.Time
 	for {
 		select {
@@ -48,10 +51,15 @@ func (d *duckWatch) Run(ctx context.Context) {
 			return
 		case <-time.After(d.Poll):
 		}
-		busy, err := d.Status()
+		rec, disp, err := d.State()
 		if err != nil {
 			continue
 		}
+		if rec && !wasListening && d.OnListen != nil {
+			d.OnListen()
+		}
+		wasListening = rec
+		busy := rec || disp
 		switch {
 		case busy:
 			lastBusy = time.Now()
@@ -66,16 +74,16 @@ func (d *duckWatch) Run(ctx context.Context) {
 	}
 }
 
-// agentBusy asks agentd whether it is recognizing or answering a turn.
-func agentBusy(sock string) (bool, error) {
+// agentState asks agentd whether it is recognizing or answering a turn.
+func agentState(sock string) (bool, bool, error) {
 	resp, err := (&LocalTTS{Socket: sock}).call(map[string]any{"v": 1, "id": 7, "cmd": "status", "args": map[string]any{}})
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	data, _ := resp["data"].(map[string]any)
 	rec, _ := data["recognizing"].(bool)
 	disp, _ := data["dispatching"].(bool)
-	return rec || disp, nil
+	return rec, disp, nil
 }
 
 func (b *BusPlayer) SetDuck(on bool) {

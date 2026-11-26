@@ -110,15 +110,7 @@ func main() {
 		YT:      svc.YT,
 	}
 	svc.Player = &Player{AlwaysAdvance: true, Radio: bus, OnEnd: svc.Taste.Record}
-	hold := &voiceHold{}
-	go (&duckWatch{Poll: 50 * time.Millisecond, Hold: 600 * time.Millisecond,
-		Duck: func(on bool) { hold.Set(on); logf("voice hold %v", on) },
-		Status: func() (bool, error) {
-			if playing, _, _, _ := bus.Status(); !playing {
-				return false, nil
-			}
-			return agentBusy(*agentSock)
-		}}).Run(context.Background())
+
 	user, pass, err := LoadCreds(*creds)
 	if err != nil {
 		log.Fatalf("credentials: %v", err)
@@ -133,6 +125,21 @@ func main() {
 	}
 	svc.Reader = &Reader{Voice: voice, Poll: 200 * time.Millisecond, Idle: 2500 * time.Millisecond,
 		StartWait: 15 * time.Second, Pause: 700 * time.Millisecond}
+	// Watch agentd's voice turns: hold the bridge's playback while it
+	// listens or answers, and cut the bridge's own speech (long reply tail,
+	// reading) the moment it starts listening.
+	hold := &voiceHold{}
+	go (&duckWatch{Poll: 100 * time.Millisecond, Hold: 600 * time.Millisecond,
+		Duck:  func(on bool) { hold.Set(on); logf("voice hold %v", on) },
+		State: func() (bool, bool, error) { return agentState(*agentSock) },
+		OnListen: func() {
+			if s.tail.Speaking() || svc.Reader.Active() {
+				s.tail.Cancel()
+				svc.Reader.Stop() // keeps the place: "sigue" goes on
+				_ = s.api.Call("POST", "/audio/announce/stop", map[string]any{}, nil)
+				logf("listening: stopped the bridge's speech")
+			}
+		}}).Run(context.Background())
 	if *wyAddr != "" {
 		l, err := net.Listen("tcp", *wyAddr)
 		if err != nil {
