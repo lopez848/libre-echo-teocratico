@@ -113,8 +113,8 @@ func (y *YouTube) Artist(name string) ([]Track, error) {
 	}
 	var mine []Track
 	for _, h := range hits {
-		if similarName(want, fold(h.Artist)) {
-			mine = append(mine, h)
+		if tr, ok := byArtist(want, h); ok {
+			mine = append(mine, tr)
 		}
 	}
 	if len(mine) == 0 {
@@ -123,8 +123,8 @@ func (y *YouTube) Artist(name string) ([]Track, error) {
 		if top := mainArtist(hits); top != "" {
 			want = fold(top)
 			for _, h := range hits {
-				if fold(h.Artist) == want {
-					mine = append(mine, h)
+				if tr, ok := byArtist(want, h); ok {
+					mine = append(mine, tr)
 				}
 			}
 		}
@@ -138,11 +138,12 @@ func (y *YouTube) Artist(name string) ([]Track, error) {
 	}
 	seen := map[string]bool{}
 	var out []Track
-	for _, tr := range append(mix, mine...) {
-		if seen[tr.URL] || !similarName(want, fold(tr.Artist)) {
+	for _, t := range append(mix, mine...) {
+		tr, ok := byArtist(want, t)
+		if seen[t.URL] || !ok {
 			continue
 		}
-		seen[tr.URL] = true
+		seen[t.URL] = true
 		out = append(out, tr)
 	}
 	return out, nil
@@ -465,21 +466,59 @@ func editDistance(a, b string) int {
 	return prev[len(rb)]
 }
 
-// mainArtist returns the channel that appears at least twice among search
-// hits and more than any other, or "".
+// titleArtist returns the artist a title names before its dash
+// ("Hector Lavoe - El Cantante"), as labels upload songs that way.
+func titleArtist(title string) string {
+	for _, sep := range []string{" - ", " – ", " — "} {
+		if a, _, ok := strings.Cut(title, sep); ok {
+			a = strings.TrimSpace(a)
+			for _, ft := range []string{" ft. ", " ft ", " feat. ", " feat ", ","} {
+				if i := strings.Index(strings.ToLower(a), ft); i > 0 {
+					a = strings.TrimSpace(a[:i])
+				}
+			}
+			return a
+		}
+	}
+	return ""
+}
+
+// byArtist reports whether a track is by the (folded) artist, by its
+// channel or by its title; a track found by title takes that artist name.
+func byArtist(want string, t Track) (Track, bool) {
+	if similarName(want, fold(t.Artist)) {
+		return t, true
+	}
+	if ta := titleArtist(t.Title); ta != "" && similarName(want, fold(ta)) {
+		t.Artist = ta
+		return t, true
+	}
+	return t, false
+}
+
+// mainArtist returns the artist that search hits name most (by channel or
+// title), when named at least twice, or "".
 func mainArtist(hits []Track) string {
 	count := map[string]int{}
 	name := map[string]string{}
 	best, bestN := "", 1
-	for _, h := range hits {
-		k := fold(h.Artist)
+	add := func(n string) {
+		k := fold(n)
 		if k == "" {
-			continue
+			return
 		}
 		count[k]++
-		name[k] = h.Artist
+		if name[k] == "" {
+			name[k] = n
+		}
 		if count[k] > bestN {
 			best, bestN = k, count[k]
+		}
+	}
+	for _, h := range hits {
+		add(h.Artist)
+		if ta := titleArtist(h.Title); ta != "" && fold(ta) != fold(h.Artist) {
+			add(ta)
 		}
 	}
 	return name[best]

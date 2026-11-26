@@ -319,6 +319,9 @@ func TestSimilarName(t *testing.T) {
 const salsaSearch = `{"contents":{"x":[
  {"videoRenderer":{"videoId":"h1","title":{"runs":[{"text":"El Cantante"}]},"ownerText":{"runs":[{"text":"Héctor Lavoe"}]},"lengthText":{"simpleText":"5:30"}}},
  {"videoRenderer":{"videoId":"x1","title":{"runs":[{"text":"Una mezcla"}]},"ownerText":{"runs":[{"text":"DJ Mezclas"}]},"lengthText":{"simpleText":"4:00"}}},
+ {"videoRenderer":{"videoId":"f1","title":{"runs":[{"text":"Hector Lavoe - El Todopoderoso"}]},"ownerText":{"runs":[{"text":"Fania Records"}]},"lengthText":{"simpleText":"6:10"}}},
+ {"videoRenderer":{"videoId":"f2","title":{"runs":[{"text":"Hector Lavoe - Calle Luna Calle Sol"}]},"ownerText":{"runs":[{"text":"Fania Records"}]},"lengthText":{"simpleText":"5:40"}}},
+ {"videoRenderer":{"videoId":"f3","title":{"runs":[{"text":"Willie Colón - Che Che Colé"}]},"ownerText":{"runs":[{"text":"Fania Records"}]},"lengthText":{"simpleText":"5:00"}}},
  {"videoRenderer":{"videoId":"h2","title":{"runs":[{"text":"Periódico de Ayer"}]},"ownerText":{"runs":[{"text":"Héctor Lavoe"}]},"lengthText":{"simpleText":"5:10"}}}
 ]}}`
 
@@ -333,8 +336,13 @@ func TestYouTubeArtistFallsBackToTheMainArtistOfTheResults(t *testing.T) {
 	srv, _ := fakeInnertube(t, map[string]string{"/search": salsaSearch, "/next": salsaMix})
 	y := &YouTube{HTTP: srv.Client(), Web: srv.URL, Music: srv.URL}
 	got, err := y.Artist("el cantante de la salsa")
-	if err != nil || len(got) != 3 || got[0].Artist != "Héctor Lavoe" {
+	if err != nil || len(got) != 5 {
 		t.Fatalf("got %+v %v", got, err)
+	}
+	for _, tr := range got {
+		if strings.Contains(tr.Title, "Willie") || tr.Artist == "DJ Mezclas" {
+			t.Fatalf("songs of other artists must be left out: %+v", tr)
+		}
 	}
 }
 
