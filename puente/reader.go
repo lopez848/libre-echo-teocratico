@@ -47,6 +47,13 @@ func (r *Reader) Stop() {
 	r.running = false
 }
 
+// Loaded reports whether a reading has been started at least once.
+func (r *Reader) Loaded() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.cur != nil
+}
+
 // Active reports whether a reading is being spoken (or about to be).
 func (r *Reader) Active() bool {
 	r.mu.Lock()

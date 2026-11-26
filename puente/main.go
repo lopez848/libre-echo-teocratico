@@ -118,6 +118,8 @@ func main() {
 		tail: &tailSpeaker{Voice: &LocalTTS{Socket: *mainTTS}, Poll: 300 * time.Millisecond,
 			Idle: 1500 * time.Millisecond, StartWait: 15 * time.Second},
 	}
+	svc.Reader = &Reader{Voice: &LocalTTS{Socket: *mainTTS}, Poll: 300 * time.Millisecond,
+		Idle: 1500 * time.Millisecond, StartWait: 15 * time.Second}
 	if *wyAddr != "" {
 		l, err := net.Listen("tcp", *wyAddr)
 		if err != nil {
@@ -155,7 +157,8 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	s.tail.Cancel() // a new turn interrupts the rest of a long reply
+	s.tail.Cancel()   // a new turn interrupts the rest of a long reply
+	svc.Reader.Stop() // and a reading in progress (it can be resumed)
 	start := time.Now()
 	reply := s.answer(r.Context(), in, r.Header.Get("Authorization"))
 	if verbose {

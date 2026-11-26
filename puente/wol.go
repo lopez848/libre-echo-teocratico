@@ -460,8 +460,11 @@ func ParseBibleChapter(page string, book, chapter, from, to int) (Reading, error
 	}
 	r := Reading{Title: title}
 	cur, curPara := title+".", order[0]
-	for _, v := range order {
+	for i, v := range order {
 		t := strings.Join(verses[v], " ")
+		if i == 0 {
+			t = strings.TrimLeft(t, "”’ ") // closing quote of an earlier verse
+		}
 		if len(cur) > 300 {
 			r.Pieces = append(r.Pieces, ReadPiece{Para: curPara, Text: cur})
 			cur, curPara = "", v

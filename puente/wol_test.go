@@ -173,6 +173,10 @@ func TestParseBibleChapterVerses(t *testing.T) {
 	if !strings.Contains(all, "versículo 12.") || strings.Contains(all, "*") || strings.Contains(all, "+") || strings.Contains(all, "40 Versículo") {
 		t.Fatalf("whole chapter, no markers: %q", all)
 	}
+	quoted := strings.Replace(page, `<span id="v23-40-3-1" class="v"><a class="vl vx vp" href="/x">3 </a>Versículo 3`, `<span id="v23-40-3-1" class="v"><a class="vl vx vp" href="/x">3 </a>”Versículo 3`, 1)
+	if q, _ := ParseBibleChapter(quoted, 23, 40, 3, 3); !strings.Contains(q.Pieces[0].Text, "versículo 3. Versículo 3") {
+		t.Fatalf("a passage must not start with the previous verse's closing quote: %q", q.Pieces[0].Text)
+	}
 	r, _ = ParseBibleChapter(page, 23, 40, 3, 4)
 	got := ""
 	for _, p := range r.Pieces {
@@ -200,7 +204,11 @@ func fakeWOL(t *testing.T) (*JW, *[]string) {
 		case strings.HasPrefix(r.URL.Path, "/es/wol/b/r4/lp-s/nwtsty/"):
 			var b, c int
 			fmt.Sscanf(strings.TrimPrefix(r.URL.Path, "/es/wol/b/r4/lp-s/nwtsty/"), "%d/%d", &b, &c)
-			w.Write([]byte(wolChapter(b, c, 3)))
+			n := 3
+			if c == 23 {
+				n = 12 // long enough to need the reader
+			}
+			w.Write([]byte(wolChapter(b, c, n)))
 		default:
 			http.NotFound(w, r)
 		}

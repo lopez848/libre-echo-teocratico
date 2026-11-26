@@ -33,6 +33,12 @@ var toolSpecs = json.RawMessage(`[
 {"type":"function","function":{"name":"media_control","description":"Control current playback.","parameters":{"type":"object","properties":{"action":{"type":"string","enum":["pause","resume","next","previous"]}},"required":["action"]}}},
 {"type":"function","function":{"name":"set_do_not_disturb","description":"Turn do-not-disturb mode on or off.","parameters":{"type":"object","properties":{"enabled":{"type":"boolean"}},"required":["enabled"]}}},
 {"type":"function","function":{"name":"daily_text","description":"Read the daily Bible text (texto diario, Examinemos las Escrituras) from wol.jw.org.","parameters":{"type":"object","properties":{"day":{"type":"string","enum":["hoy","mañana","ayer","pasado mañana","anteayer"],"description":"Relative day. Always use this for hoy, mañana, ayer, pasado mañana or anteayer; the device computes the date."},"date":{"type":"string","description":"YYYY-MM-DD, only for a specific calendar date the user names (e.g. el 3 de diciembre). Omit both for today."}}}}},
+{"type":"function","function":{"name":"read_watchtower","description":"Read aloud the Watchtower study article (estudio de La Atalaya) from wol.jw.org, paragraph by paragraph with its questions. week: esta (default) or siguiente for next week.","parameters":{"type":"object","properties":{"week":{"type":"string","enum":["esta","siguiente"]}}}}},
+{"type":"function","function":{"name":"read_workbook","description":"Read aloud the meeting workbook (Guía de actividades, Vida y Ministerio, guía de estudio de la reunión) of the week.","parameters":{"type":"object","properties":{"week":{"type":"string","enum":["esta","siguiente"]}}}}},
+{"type":"function","function":{"name":"read_weekly_bible_reading","description":"Read aloud this week's Bible reading (lectura de la Biblia de la semana) from the workbook.","parameters":{"type":"object","properties":{"week":{"type":"string","enum":["esta","siguiente"]}}}}},
+{"type":"function","function":{"name":"read_bible","description":"Read a Bible chapter or verses aloud, e.g. 'lee Juan 3:16' (book Juan, chapter 3, verse_start 16), 'lee el Salmo 23' (whole chapter: omit verses).","parameters":{"type":"object","properties":{"book":{"type":"string","description":"Spanish book name, e.g. Juan, Salmos, Primera de Juan"},"chapter":{"type":"integer"},"verse_start":{"type":"integer"},"verse_end":{"type":"integer"}},"required":["book","chapter"]}}},
+{"type":"function","function":{"name":"resume_reading","description":"Continue the last long reading where it stopped ('continúa la lectura', 'sigue leyendo').","parameters":{"type":"object","properties":{}}}},
+{"type":"function","function":{"name":"read_paragraph","description":"Read from a given paragraph of the current reading, or of this week's Watchtower study article ('lee el párrafo 5').","parameters":{"type":"object","properties":{"paragraph":{"type":"integer"}},"required":["paragraph"]}}},
 {"type":"function","function":{"name":"play_jw_music","description":"Play a music section from jw.org in random order, e.g. 'reproduce desde jw.org Música internacional'.","parameters":{"type":"object","properties":{"collection":{"type":"string","enum":["Música internacional","Canciones originales","Cantemos con gozo a Jehová (para las reuniones)","Cantemos con gozo a Jehová (cantadas)","Cantemos con gozo a Jehová (instrumental)","Cantemos a Jehová (coro y orquesta)","Canciones para niños","Melodías del Reino"]}},"required":["collection"]}}},
 {"type":"function","function":{"name":"play_youtube","description":"Play music from YouTube. mode artist: only songs by one artist ('pon canciones de Juan Luis Guerra'); mode song: one specific song, then similar songs ('pon Bachata Rosa', 'pon la canción Provenza de Karol G'); mode like_current: songs similar to the one playing now ('pon algo parecido a esto'). Not for jw.org music or radio stations.","parameters":{"type":"object","properties":{"query":{"type":"string","description":"artist name, or song title with optional artist; empty for like_current"},"mode":{"type":"string","enum":["artist","song","like_current"]}},"required":["mode"]}}},
 {"type":"function","function":{"name":"now_playing","description":"Say which song is playing now.","parameters":{"type":"object","properties":{}}}},
@@ -107,6 +113,18 @@ func Exec(api API, name, args string) string {
 		return dailyText(strArg(a, "day"), strArg(a, "date"))
 	case "play_jw_music":
 		return playJWMusic(strArg(a, "collection"), true)
+	case "read_watchtower":
+		return readWatchtower(strArg(a, "week"))
+	case "read_workbook":
+		return readWorkbook(strArg(a, "week"))
+	case "read_weekly_bible_reading":
+		return readWeeklyBible(strArg(a, "week"))
+	case "read_bible":
+		return readBible(strArg(a, "book"), intArg(a, "chapter"), intArg(a, "verse_start"), intArg(a, "verse_end"))
+	case "resume_reading":
+		return resumeReading()
+	case "read_paragraph":
+		return readParagraph(intArg(a, "paragraph"))
 	case "play_youtube":
 		return playYouTube(strArg(a, "query"), strArg(a, "mode"))
 	case "now_playing":
@@ -626,6 +644,7 @@ type Services struct {
 	JW       *JW
 	YT       *YouTube
 	Taste    *Taste
+	Reader   *Reader
 	Player   *Player
 	Location *time.Location
 	Now      func() time.Time
