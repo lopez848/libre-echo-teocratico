@@ -14,8 +14,8 @@ Branch: feat/ota. Delivery: ask-on-risk. Test runner: `go test -race ./...` in `
 
 ## Tasks
 
-- T1 (S3, S5) ota-sign tool: keygen (private key 600 outside the repo) and manifest signing. Route: inline.
-- T2 (S1, S3, S4) ota agent: check latest release, verify signature, hash and version, install with backup, health check, rollback, state file. Route: inline.
+- T1 (S3, S5) ota-sign tool: keygen (private key 600 outside the repo) and manifest signing. Route: inline. Done (TestKeygenManifestAndSignRoundTrip).
+- T2 (S1, S3, S4) ota agent: check latest release, verify signature, hash and version, install with backup, health check, rollback, state file. Route: inline. Done (7 agent tests RED then GREEN, -race; ARM build ok). Risk: items 2 and 5 (signature check, remote install) -> T5 review.
 - T3 (S2, S6) release script: build armv7, write and sign manifest, `gh release create` only after the owner's yes. Route: inline.
 - T4 (S1, S4) install the ota service on the owner's Echo and run one real update end to end (needs S6 yes). Route: inline.
 - T5 review by Gentle Shell (DeepSeek) of the full diff (security + delivery risk). Route: delegated (global review rule).
@@ -26,3 +26,4 @@ Branch: feat/ota. Delivery: ask-on-risk. Test runner: `go test -race ./...` in `
 - L2 (2026-11-26) Owner: "me gustaria implementarlo pero antes quiero saber porq se detubo la reproduccion de la atalaya ..." (design accepted, implementation deferred).
 - L3 (2026-11-26) Owner: "otra cosa antes de todo creemos el repo en github ppara lo q te dije de las actualizaciones desde alli a los q regalare". The public repo lopez848/libreecho-mia already exists; owner chose to use it.
 - L4 (2026-11-26) Owner: "llamemoslo Libre Echo Teocratico al repo". Renamed on GitHub to lopez848/libre-echo-teocratico (no spaces allowed; GitHub redirects the old name); origin remote, README title and references updated.
+- L5 (2026-11-26) T1+T2 written in ota/ (stdlib only). Public key is injected at build time (-X main.publicKey); without it the agent refuses to run. Only puente and vigia are updatable. Downgrades and failed versions are skipped.
