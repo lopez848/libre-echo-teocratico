@@ -18,7 +18,7 @@ Branch: feat/ota. Delivery: ask-on-risk. Test runner: `go test -race ./...` in `
 - T2 (S1, S3, S4) ota agent: check latest release, verify signature, hash and version, install with backup, health check, rollback, state file. Route: inline. Done (7 agent tests RED then GREEN, -race; ARM build ok). Risk: items 2 and 5 (signature check, remote install) -> T5 review.
 - T3 (S2, S6) release script: build armv7, write and sign manifest, `gh release create` only after the owner's yes. Route: inline. Done (dry run v0.1.0 signed; bad versions rejected).
 - T4 (S1, S4) install the ota service on the owner's Echo and run one real update end to end (needs S6 yes). Route: inline.
-- T5 review by Gentle Shell (DeepSeek) of the full diff (security + delivery risk). Route: delegated (global review rule).
+- T5 review by Gentle Shell (DeepSeek) of the full diff (security + delivery risk). Route: delegated (global review rule). Done: 7 findings fixed in 2f7d6f8, recheck clean.
 
 ## Log
 
@@ -29,3 +29,4 @@ Branch: feat/ota. Delivery: ask-on-risk. Test runner: `go test -race ./...` in `
 - L5 (2026-11-26) T1+T2 written in ota/ (stdlib only). Public key is injected at build time (-X main.publicKey); without it the agent refuses to run. Only puente and vigia are updatable. Downgrades and failed versions are skipped.
 - L6 (2026-11-26) T5 review (Gentle Shell, deepseek-v4-flash) on bf16992..7ef3c1b: 7 findings, all checked against the code and accepted. Fixed: pending marker written before the swap + recovery after a reboot (backup no longer overwritten); damaged state file blocks installs instead of reading as empty; health check fails fast on a crash loop (3 different PIDs) with a 60 s deadline, inside the supervisor's 10 failures/10 min budget; flock so only one check runs; fsync before every rename; tests for each (RED then GREEN).
 - L7 (2026-11-26) Signing key created on the owner's PC at ~/.config/libre-echo-ota/signing.key (600, never printed, not in the repo). Public key V9M9wiUJ+MS31jhF4Xfj+mMdOh8WszjJsNxwjqwd4fM= is injected by `tools/ota-release.sh --build-agent`. T3 script done: builds and signs dist/<ver>; publishes only with --publish.
+- L8 (2026-11-26) Recheck by Gentle Shell (2f7d6f8): 7/7 fixed, no new blockers. T4 part 1: agent built with the public key and installed on the owner's Echo as services/ota (run + ota); `./ota -once` reached the GitHub API over HTTPS: "ota: no release published"; supervisor shows service.ota=running. Pending: first real release v0.1.0 (needs the owner's yes, S6) to test an install end to end.
