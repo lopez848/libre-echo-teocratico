@@ -102,3 +102,16 @@ func TestThermostatNotPaired(t *testing.T) {
 }
 
 var _ = hap.FormatCode
+
+func TestIndoorTemperatureQuestionSkipsTheModel(t *testing.T) {
+	for _, q := range []string{"¿Qué temperatura hace en la casa?", "qué temperatura hay adentro", "a cuánto está el termostato", "cómo está el termostato", "¿está prendido el aire?", "qué temperatura hace en el apartamento"} {
+		if !isThermostatQuestion(q) {
+			t.Errorf("%q must go to the thermostat", q)
+		}
+	}
+	for _, q := range []string{"qué temperatura hace afuera", "qué tiempo hace", "pon el aire a 72", "apaga el aire", "qué temperatura hace hoy"} {
+		if isThermostatQuestion(q) {
+			t.Errorf("%q is not an indoor status question", q)
+		}
+	}
+}

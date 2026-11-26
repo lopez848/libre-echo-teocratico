@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strings"
 	"sync"
 
 	"puente/hap"
@@ -261,4 +262,31 @@ func setThermostat(mode string, temp float64, hasTemp bool) string {
 	default:
 		return fmt.Sprintf("Listo, encendí %s.", modeName(newMode))
 	}
+}
+
+// isThermostatQuestion recognizes questions about the indoor temperature or
+// the thermostat, answered from the thermostat without the model (the model
+// tends to answer with the outdoor weather that agentd adds to the prompt).
+func isThermostatQuestion(text string) bool {
+	f := fold(text)
+	for _, w := range []string{"afuera", "fuera", "exterior", "pon ", "apaga", "prende el", "enciende", "sube", "baja"} {
+		if strings.Contains(f, w) {
+			return false
+		}
+	}
+	if strings.Contains(f, "termostato") {
+		return true
+	}
+	if strings.Contains(f, "esta prendido el aire") || strings.Contains(f, "esta encendido el aire") ||
+		strings.Contains(f, "esta prendida la calefaccion") || strings.Contains(f, "esta encendida la calefaccion") {
+		return true
+	}
+	if strings.Contains(f, "temperatura") {
+		for _, w := range []string{"en la casa", "adentro", "dentro", "en el apartamento", "en el apto", "en el departamento"} {
+			if strings.Contains(f, w) {
+				return true
+			}
+		}
+	}
+	return false
 }

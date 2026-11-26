@@ -262,6 +262,9 @@ func (s *server) answer(ctx context.Context, in inbound, auth string) string {
 	if isJWHelpQuestion(user) {
 		return jwHelp
 	}
+	if isThermostatQuestion(user) {
+		return thermostatStatus()
+	}
 	sys := systemPrompt
 	for _, m := range in.Messages {
 		if m.Role == "system" {
