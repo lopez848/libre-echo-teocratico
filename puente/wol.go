@@ -883,25 +883,32 @@ func ParseBibleChapter(page string, book, chapter, from, to int) (Reading, error
 }
 
 func (j *JW) weekDoc(ctx context.Context, t time.Time, heading string) (string, error) {
+	_, page, err := j.weekDocRef(ctx, t, heading)
+	return page, err
+}
+
+// weekDocRef returns the wol document id and page linked under heading in
+// the week's meetings page.
+func (j *JW) weekDocRef(ctx context.Context, t time.Time, heading string) (string, string, error) {
 	if j.Location != nil {
 		t = t.In(j.Location)
 	}
 	y, w := t.ISOWeek()
 	page, err := j.get(ctx, fmt.Sprintf("%s/es/wol/meetings/r4/lp-s/%d/%d", j.WOLBase, y, w))
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	s := string(page)
 	i := strings.Index(s, heading)
 	if i < 0 {
-		return "", fmt.Errorf("week %d/%d: no %q section", y, w, heading)
+		return "", "", fmt.Errorf("week %d/%d: no %q section", y, w, heading)
 	}
-	m := regexp.MustCompile(`href="(/es/wol/d/r4/lp-s/\d+)"`).FindStringSubmatch(s[i:])
+	m := regexp.MustCompile(`href="(/es/wol/d/r4/lp-s/(\d+))"`).FindStringSubmatch(s[i:])
 	if m == nil {
-		return "", fmt.Errorf("week %d/%d: no link under %q", y, w, heading)
+		return "", "", fmt.Errorf("week %d/%d: no link under %q", y, w, heading)
 	}
 	doc, err := j.get(ctx, j.WOLBase+m[1])
-	return string(doc), err
+	return m[2], string(doc), err
 }
 
 // Watchtower returns the study article of the week that contains t.

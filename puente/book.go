@@ -201,6 +201,36 @@ func ParseBookChapter(page string) (Reading, error) {
 
 var reBookLink = regexp.MustCompile(`href="(/es/wol/(?:pc|d)/r4/lp-s/[^"#]+)"`)
 
+// bookStudyRef returns the wol document id and title of this week's book
+// study chapter.
+func (j *JW) bookStudyRef(ctx context.Context, t time.Time) (string, string, error) {
+	page, err := j.weekDoc(ctx, t, "Vida y Ministerio")
+	if err != nil {
+		return "", "", err
+	}
+	i := strings.Index(page, "Estudio bíblico de la congregación")
+	if i < 0 {
+		return "", "", errors.New("workbook: no congregation Bible study part")
+	}
+	m := reBookLink.FindStringSubmatch(page[i:])
+	if m == nil {
+		return "", "", errors.New("workbook: no link to the book study chapter")
+	}
+	ch, path, err := j.getFinal(ctx, j.WOLBase+m[1])
+	if err != nil {
+		return "", "", err
+	}
+	id := reDocID.FindStringSubmatch(path)
+	if id == nil {
+		return "", "", fmt.Errorf("book study: no document id in %s", path)
+	}
+	r, err := ParseBookChapter(string(ch))
+	if err != nil {
+		return "", "", err
+	}
+	return id[1], r.Title, nil
+}
+
 // BookStudy reads this week's congregation book study chapter, found
 // through the workbook's "Estudio bíblico de la congregación" part.
 func (j *JW) BookStudy(ctx context.Context, t time.Time) (Reading, error) {

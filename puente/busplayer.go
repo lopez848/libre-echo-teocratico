@@ -100,6 +100,23 @@ type pcmSource struct {
 	Rate     int
 	Channels int
 	Close    func()
+	seek     io.Seeker // set when the decoder can jump (MP3)
+}
+
+// skipTo moves the source to second start: a decoder seek when possible,
+// otherwise decoding and dropping the audio before it.
+func (p *pcmSource) skipTo(start float64) error {
+	frame := int64(2 * p.Channels)
+	off := int64(start*float64(p.Rate)) * frame
+	if off <= 0 {
+		return nil
+	}
+	if p.seek != nil {
+		_, err := p.seek.Seek(off, io.SeekStart)
+		return err
+	}
+	_, err := io.CopyN(io.Discard, p.R, off)
+	return err
 }
 
 // open decodes an MP3 URL or a yt:<videoId> track (AAC in m4a).
@@ -128,24 +145,12 @@ func (b *BusPlayer) open(ctx context.Context, url string) (*pcmSource, error) {
 		}
 		return &pcmSource{R: dec, Rate: info.SampleRate, Channels: info.Channels, Close: func() {}}, nil
 	}
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	rr := &rangeReader{HTTP: b.HTTP, URL: url, Chunk: 1 << 20, Ctx: ctx}
+	dec, err := mp3.NewDecoder(rr)
 	if err != nil {
-		return nil, err
-	}
-	resp, err := b.HTTP.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != 200 {
-		resp.Body.Close()
-		return nil, fmt.Errorf("HTTP %d for %s", resp.StatusCode, url)
-	}
-	dec, err := mp3.NewDecoder(resp.Body)
-	if err != nil {
-		resp.Body.Close()
 		return nil, fmt.Errorf("mp3: %w", err)
 	}
-	return &pcmSource{R: dec, Rate: dec.SampleRate(), Channels: 2, Close: func() { resp.Body.Close() }}, nil
+	return &pcmSource{R: dec, Rate: dec.SampleRate(), Channels: 2, Close: func() {}, seek: dec}, nil
 }
 
 // toStereo duplicates mono s16le samples into both channels.
@@ -158,11 +163,19 @@ func toStereo(mono []byte) []byte {
 }
 
 func (b *BusPlayer) stream(ctx context.Context, url string) error {
+	url, start, end := splitMediaFragment(url)
 	src, err := b.open(ctx, url)
 	if err != nil {
 		return err
 	}
 	defer src.Close()
+	if err := src.skipTo(start); err != nil {
+		return fmt.Errorf("seek: %w", err)
+	}
+	limit := int64(-1) // bytes of 48 kHz stereo output left to play
+	if end > start {
+		limit = int64((end-start)*48000) * 4
+	}
 	if src.Channels != 1 && src.Channels != 2 {
 		return fmt.Errorf("unsupported channel count %d", src.Channels)
 	}
@@ -193,11 +206,18 @@ func (b *BusPlayer) stream(ctx context.Context, url string) error {
 			if src.Channels == 1 {
 				chunk = toStereo(chunk)
 			}
-			if _, werr := out.Write(rs.process(chunk)); werr != nil {
+			pcm := rs.process(chunk)
+			if limit >= 0 {
+				if int64(len(pcm)) > limit {
+					pcm = pcm[:limit-limit%4]
+				}
+				limit -= int64(len(pcm))
+			}
+			if _, werr := out.Write(pcm); werr != nil {
 				return fmt.Errorf("write bus: %w", werr)
 			}
 		}
-		if err == io.EOF || err == io.ErrUnexpectedEOF {
+		if err == io.EOF || err == io.ErrUnexpectedEOF || limit == 0 {
 			return nil
 		}
 		if err != nil {

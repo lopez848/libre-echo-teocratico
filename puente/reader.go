@@ -76,6 +76,30 @@ func (r *Reader) Stop() {
 	r.running = false
 }
 
+// AfterSilence runs fn once agentd has finished speaking its reply; any
+// new turn (Stop) cancels it. Used to start official recordings after the
+// spoken intro instead of over it.
+func (r *Reader) AfterSilence(fn func()) {
+	r.Stop()
+	r.mu.Lock()
+	ctx, cancel := context.WithCancel(context.Background())
+	r.cancel = cancel
+	gen := r.gen
+	r.mu.Unlock()
+	go func() {
+		defer cancel()
+		if !waitSilence(ctx, r.Voice, r.Poll, r.Idle, r.StartWait) {
+			return
+		}
+		r.mu.Lock()
+		ok := r.gen == gen && ctx.Err() == nil
+		r.mu.Unlock()
+		if ok {
+			fn()
+		}
+	}()
+}
+
 // Loaded reports whether a reading has been started at least once.
 func (r *Reader) Loaded() bool {
 	r.mu.Lock()

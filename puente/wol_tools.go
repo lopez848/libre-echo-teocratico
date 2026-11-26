@@ -28,11 +28,43 @@ func startReading(r Reading, intro string, direct bool) string {
 	for _, p := range r.Pieces {
 		full = strings.TrimSpace(full + " " + p.Text)
 	}
+	svc.Audio = nil
 	if svc.Reader == nil || (direct && len(Speakable(full)) <= agentdReplyMax) {
 		return full
 	}
 	svc.Reader.Start(r, 0)
 	return intro
+}
+
+// playOfficial plays official recordings once agentd has said the intro.
+func playOfficial(name string, tracks []Track) {
+	if svc.Player == nil {
+		return
+	}
+	if svc.Reader == nil {
+		svc.Player.Start(name, tracks, false)
+		return
+	}
+	svc.Reader.Forget()
+	svc.Reader.AfterSilence(func() {
+		if _, err := svc.Player.Start(name, tracks, false); err != nil {
+			logf("official audio: %v", err)
+		}
+	})
+}
+
+// watchtowerAudio starts the study article recording of the week of t.
+func watchtowerAudio(ctx context.Context, t time.Time, label string) (*audioState, bool) {
+	docID, page, err := svc.JW.weekDocRef(ctx, t, "Estudio de La Atalaya")
+	if err != nil {
+		return nil, false
+	}
+	a, err := svc.JW.AudioByDoc(ctx, docID)
+	if err != nil {
+		logf("wol watchtower audio: %v (using the voice)", err)
+		return nil, false
+	}
+	return studyAudioState("el estudio de La Atalaya "+label, page, a), true
 }
 
 func readWatchtower(week string) string {
@@ -42,6 +74,11 @@ func readWatchtower(week string) string {
 	t, label := wolWeek(week)
 	ctx, cancel := wolCtx()
 	defer cancel()
+	if st, ok := watchtowerAudio(ctx, t, label); ok && svc.Player != nil {
+		svc.Audio = st
+		playOfficial(st.Name, []Track{{Title: st.Title, URL: st.URL}})
+		return fmt.Sprintf("Pongo el audio del estudio de La Atalaya %s: %s.", label, st.Title)
+	}
 	r, err := svc.JW.Watchtower(ctx, t)
 	if err != nil {
 		logf("wol watchtower: %v", err)
@@ -57,6 +94,13 @@ func readWorkbook(week string) string {
 	t, label := wolWeek(week)
 	ctx, cancel := wolCtx()
 	defer cancel()
+	if docID, _, err := svc.JW.weekDocRef(ctx, t, "Vida y Ministerio"); err == nil && svc.Player != nil {
+		if a, err := svc.JW.AudioByDoc(ctx, docID); err == nil {
+			svc.Audio = nil
+			playOfficial("la guía de actividades "+label, []Track{{Title: a.Title, URL: a.URL}})
+			return "Pongo el audio de la guía de actividades " + label + "."
+		}
+	}
 	r, _, err := svc.JW.Workbook(ctx, t)
 	if err != nil {
 		logf("wol workbook: %v", err)
@@ -72,6 +116,26 @@ func readWeeklyBible(week string) string {
 	t, label := wolWeek(week)
 	ctx, cancel := wolCtx()
 	defer cancel()
+	if page, err := svc.JW.weekDoc(ctx, t, "Vida y Ministerio"); err == nil && svc.Player != nil {
+		if _, weekly, err := ParseWorkbook(page); err == nil {
+			if book, from, to, ok := ParseWeeklyReading(weekly); ok {
+				var tracks []Track
+				for ch := from; ch <= to; ch++ {
+					a, err := svc.JW.BibleAudio(ctx, book, ch)
+					if err != nil {
+						tracks = nil
+						break
+					}
+					tracks = append(tracks, Track{Title: bibleTitle(book, ch, 0, 0), URL: a.URL})
+				}
+				if len(tracks) > 0 {
+					svc.Audio = nil
+					playOfficial("la lectura bíblica "+label, tracks)
+					return fmt.Sprintf("Pongo el audio de la lectura bíblica %s: %s.", label, chapterRange(book, from, to))
+				}
+			}
+		}
+	}
 	r, err := svc.JW.WeeklyBibleReading(ctx, t)
 	if err != nil {
 		logf("wol weekly reading: %v", err)
@@ -96,6 +160,22 @@ func readBible(bookName string, chapter, from, to int) string {
 	}
 	ctx, cancel := wolCtx()
 	defer cancel()
+	if svc.Player != nil {
+		if a, err := svc.JW.BibleAudio(ctx, book, chapter); err == nil {
+			u, ok := a.URL, true
+			if from > 0 {
+				var s, e float64
+				s, e, ok = verseSpan(a, from, to)
+				u = withFragment(a.URL, s, e)
+			}
+			if ok {
+				svc.Audio = nil
+				title := bibleTitle(book, chapter, from, to)
+				playOfficial(title, []Track{{Title: title, URL: u}})
+				return title + "."
+			}
+		}
+	}
 	r, err := svc.JW.Bible(ctx, book, chapter, from, to)
 	if err != nil {
 		logf("wol bible: %v", err)
@@ -121,6 +201,23 @@ func resumeReading() string {
 func readParagraph(n int) string {
 	if svc.Reader == nil || n <= 0 {
 		return "¿Qué párrafo quieres?"
+	}
+	if svc.Audio == nil && !svc.Reader.Loaded() && svc.JW != nil && svc.Player != nil {
+		// Nothing loaded yet: this week's study article recording, if any.
+		ctx, cancel := wolCtx()
+		st, ok := watchtowerAudio(ctx, svc.today(), "de esta semana")
+		cancel()
+		if ok {
+			svc.Audio = st
+		}
+	}
+	if svc.Audio != nil {
+		u, ok := svc.Audio.jump(n)
+		if !ok {
+			return fmt.Sprintf("Ese artículo no tiene párrafo %d.", n)
+		}
+		playOfficial(svc.Audio.Name, []Track{{Title: svc.Audio.Title, URL: u}})
+		return fmt.Sprintf("Leyendo el párrafo %d de %s.", n, svc.Audio.Title)
 	}
 	title, ok := svc.Reader.Jump(n)
 	if !ok && !svc.Reader.Loaded() && svc.JW != nil {
@@ -149,6 +246,13 @@ func readBookStudy(week string) string {
 	t, label := wolWeek(week)
 	ctx, cancel := wolCtx()
 	defer cancel()
+	if docID, title, err := svc.JW.bookStudyRef(ctx, t); err == nil && svc.Player != nil {
+		if a, err := svc.JW.AudioByDoc(ctx, docID); err == nil {
+			svc.Audio = nil
+			playOfficial("el estudio bíblico de la congregación "+label, []Track{{Title: title, URL: a.URL}})
+			return fmt.Sprintf("Pongo el audio del estudio bíblico de la congregación %s: %s.", label, title)
+		}
+	}
 	r, err := svc.JW.BookStudy(ctx, t)
 	if err != nil {
 		logf("wol book study: %v", err)

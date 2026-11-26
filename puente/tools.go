@@ -654,6 +654,7 @@ type Services struct {
 	YT       *YouTube
 	Taste    *Taste
 	Reader   *Reader
+	Audio    *audioState // official recording last started, for paragraph jumps
 	Player   *Player
 	Location *time.Location
 	Now      func() time.Time

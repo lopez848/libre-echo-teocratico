@@ -95,7 +95,8 @@ func main() {
 		log.Printf("time zone %s: %v (using UTC)", *tz, err)
 	}
 	svc.JW = &JW{HTTP: &http.Client{Timeout: 10 * time.Second}, Location: svc.Location,
-		WOLBase: "https://wol.jw.org", Mediator: "https://b.jw-cdn.org/apis/mediator/v1"}
+		WOLBase: "https://wol.jw.org", Mediator: "https://b.jw-cdn.org/apis/mediator/v1",
+		PubMedia: "https://b.jw-cdn.org/apis/pub-media/GETPUBMEDIALINKS"}
 	svc.Taste = LoadTaste(*tasteFile)
 	svc.YT = &YouTube{HTTP: &http.Client{Timeout: 15 * time.Second},
 		Web: "https://www.youtube.com", Music: "https://music.youtube.com"}

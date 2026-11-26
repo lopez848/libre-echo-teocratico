@@ -20,23 +20,31 @@ type JW struct {
 	Location *time.Location
 	WOLBase  string // https://wol.jw.org
 	Mediator string // https://b.jw-cdn.org/apis/mediator/v1
+	PubMedia string // https://b.jw-cdn.org/apis/pub-media/GETPUBMEDIALINKS
 }
 
 func (j *JW) get(ctx context.Context, url string) ([]byte, error) {
+	b, _, err := j.getFinal(ctx, url)
+	return b, err
+}
+
+// getFinal also returns the path the request ended at after redirects.
+func (j *JW) getFinal(ctx context.Context, url string) ([]byte, string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux armv7l) puente/1.0")
 	resp, err := j.HTTP.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("HTTP %d for %s", resp.StatusCode, url)
+		return nil, "", fmt.Errorf("HTTP %d for %s", resp.StatusCode, url)
 	}
-	return io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	return b, resp.Request.URL.Path, err
 }
 
 var (
