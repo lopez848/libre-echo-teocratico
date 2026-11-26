@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/binary"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -71,5 +73,23 @@ func TestBusPlayerDuckLowersTheOutput(t *testing.T) {
 	b.SetDuck(false)
 	if b.gain() != 1 {
 		t.Fatal("restored")
+	}
+}
+
+func TestAnnounceVoiceReadsTheMixerState(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "status.json")
+	v := &announceVoice{Status: f}
+	write := func(s string) { os.WriteFile(f, []byte(s), 0o644) }
+	write(`{"state":"idle","active":null,"buses":{"media":true,"system":false,"announcement":false,"alarm":false}}`)
+	if on, err := v.Speaking(); err != nil || on {
+		t.Fatalf("music alone is not speech: %v %v", on, err)
+	}
+	write(`{"state":"announcing","active":"announcement","buses":{"media":false,"system":false,"announcement":true,"alarm":false}}`)
+	if on, _ := v.Speaking(); !on {
+		t.Fatal("an announcement is speech")
+	}
+	os.Remove(f)
+	if _, err := v.Speaking(); err == nil {
+		t.Fatal("a missing status file is an error")
 	}
 }

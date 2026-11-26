@@ -70,6 +70,7 @@ func main() {
 	keyFile := flag.String("key-file", "/data/libreecho/secrets/openai-codex.json", "JSON file holding the NVIDIA api_key")
 	localTTS := flag.String("local-tts", "/run/libreecho/tts-local.sock", "fallback local ttsd socket")
 	agentSock := flag.String("agent-sock", "/run/libreecho/agent.sock", "agentd socket, polled to lower the music while it listens")
+	mixerStatus := flag.String("mixer-status", "/run/libreecho-audio/status.json", "audiod state file, read to know when the assistant has finished speaking")
 	mainTTS := flag.String("main-tts", "/run/libreecho/tts.sock", "main ttsd socket, used to speak the part of a long reply that agentd drops")
 	tz := flag.String("tz", "America/Chicago", "time zone for dates (daily text)")
 	radioSock := flag.String("radio", "/run/libreecho/radio.sock", "radiod socket for music queues")
@@ -121,16 +122,16 @@ func main() {
 	if err != nil {
 		log.Fatalf("credentials: %v", err)
 	}
+	voice := &announceVoice{TTS: &LocalTTS{Socket: *mainTTS}, Status: *mixerStatus}
 	s := &server{
 		upstream: strings.TrimRight(*upstream, "/"),
 		model:    *model,
 		api:      &Device{Base: strings.TrimRight(*device, "/"), User: user, Password: pass, HTTP: &http.Client{Timeout: 8 * time.Second}},
 		client:   &http.Client{Timeout: 25 * time.Second},
-		tail: &tailSpeaker{Voice: &LocalTTS{Socket: *mainTTS}, Poll: 300 * time.Millisecond,
-			Idle: 1500 * time.Millisecond, StartWait: 15 * time.Second},
+		tail:     &tailSpeaker{Voice: voice, Poll: 200 * time.Millisecond, Idle: 2500 * time.Millisecond, StartWait: 15 * time.Second},
 	}
-	svc.Reader = &Reader{Voice: &LocalTTS{Socket: *mainTTS}, Poll: 300 * time.Millisecond,
-		Idle: 1500 * time.Millisecond, StartWait: 15 * time.Second, Pause: 700 * time.Millisecond}
+	svc.Reader = &Reader{Voice: voice, Poll: 200 * time.Millisecond, Idle: 2500 * time.Millisecond,
+		StartWait: 15 * time.Second, Pause: 700 * time.Millisecond}
 	if *wyAddr != "" {
 		l, err := net.Listen("tcp", *wyAddr)
 		if err != nil {

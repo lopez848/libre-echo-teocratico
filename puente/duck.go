@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"math"
+	"os"
 	"time"
 )
 
@@ -88,4 +90,33 @@ func (b *BusPlayer) gain() float64 {
 		return duckGain
 	}
 	return 1
+}
+
+// announceVoice speaks through the main ttsd but tells whether anything is
+// being spoken from audiod's mixer state: agentd's replies run in ttsd child
+// processes, so the daemon's own "speaking" flag stays false while they
+// play. Between two sentences of a reply the mixer goes idle for about a
+// second, so callers wait for a longer silence.
+type announceVoice struct {
+	TTS    *LocalTTS
+	Status string // /run/libreecho-audio/status.json
+}
+
+func (a *announceVoice) Speak(text string) error { return a.TTS.Speak(text) }
+
+func (a *announceVoice) Speaking() (bool, error) {
+	b, err := os.ReadFile(a.Status)
+	if err != nil {
+		return false, err
+	}
+	var st struct {
+		State string `json:"state"`
+		Buses struct {
+			Announcement bool `json:"announcement"`
+		} `json:"buses"`
+	}
+	if err := json.Unmarshal(b, &st); err != nil {
+		return false, err
+	}
+	return st.Buses.Announcement || st.State == "announcing", nil
 }
