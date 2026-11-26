@@ -337,3 +337,12 @@ func TestYouTubeArtistFallsBackToTheMainArtistOfTheResults(t *testing.T) {
 		t.Fatalf("got %+v %v", got, err)
 	}
 }
+
+func TestPlayYouTubeSaysTheArtistFound(t *testing.T) {
+	srv, _ := fakeInnertube(t, map[string]string{"/search": salsaSearch, "/next": salsaMix})
+	withYouTube(t, &YouTube{HTTP: srv.Client(), Web: srv.URL, Music: srv.URL})
+	got := Exec(&fakeAPI{}, "play_youtube", `{"query":"Eton Lavo","mode":"artist"}`)
+	if !strings.HasPrefix(got, "Poniendo canciones de Héctor Lavoe en orden aleatorio.") {
+		t.Fatalf("reply %q", got)
+	}
+}

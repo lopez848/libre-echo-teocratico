@@ -761,11 +761,15 @@ func playYouTube(query, mode string) string {
 			logf("youtube artist: %v", err)
 			return "No encontré canciones de " + query + " en YouTube."
 		}
-		first, err := startMusic("canciones de "+query, svc.Taste.Filter(tracks, query), true)
+		name := query
+		if main := mainArtist(tracks); main != "" && !similarName(fold(query), fold(main)) {
+			name = main // say who was found, not how the recognizer spelled it
+		}
+		first, err := startMusic("canciones de "+name, svc.Taste.Filter(tracks, name), true)
 		if err != nil {
 			return failed(err)
 		}
-		return fmt.Sprintf("Poniendo canciones de %s en orden aleatorio. Empieza %s.", query, spokenTitle(first))
+		return fmt.Sprintf("Poniendo canciones de %s en orden aleatorio. Empieza %s.", name, spokenTitle(first))
 	default: // song
 		if query == "" {
 			return "¿Qué canción o artista quieres?"
