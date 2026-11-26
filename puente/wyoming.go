@@ -211,6 +211,18 @@ func (l *LocalTTS) call(req map[string]any) (map[string]any, error) {
 	return resp, nil
 }
 
+// Speaking reports whether this ttsd is speaking now.
+func (l *LocalTTS) Speaking() (bool, error) {
+	id := atomic.AddInt64(&localReqID, 2) & 0x3fffffff
+	resp, err := l.call(map[string]any{"v": 1, "id": id, "cmd": "status"})
+	if err != nil {
+		return false, err
+	}
+	data, _ := resp["data"].(map[string]any)
+	speaking, _ := data["speaking"].(bool)
+	return speaking, nil
+}
+
 func (l *LocalTTS) Speak(text string) error {
 	// ttsd parses ids as a 32-bit long: keep them small and positive.
 	id := atomic.AddInt64(&localReqID, 2) & 0x3fffffff

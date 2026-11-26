@@ -54,6 +54,7 @@ type server struct {
 	model    string // optional override
 	api      API
 	client   *http.Client
+	tail     *tailSpeaker // speaks what does not fit agentd's reply buffer
 }
 
 func main() {
@@ -68,6 +69,7 @@ func main() {
 	ttsVoice := flag.String("tts-voice", "Magpie-Multilingual.ES-US.Mia", "NVIDIA Magpie voice")
 	keyFile := flag.String("key-file", "/data/libreecho/secrets/openai-codex.json", "JSON file holding the NVIDIA api_key")
 	localTTS := flag.String("local-tts", "/run/libreecho/tts-local.sock", "fallback local ttsd socket")
+	mainTTS := flag.String("main-tts", "/run/libreecho/tts.sock", "main ttsd socket, used to speak the part of a long reply that agentd drops")
 	tz := flag.String("tz", "America/Chicago", "time zone for dates (daily text)")
 	radioSock := flag.String("radio", "/run/libreecho/radio.sock", "radiod socket for music queues")
 	ttsTest := flag.String("tts-test", "", "synthesize this text with the cloud voice, write raw PCM to stdout and exit")
@@ -113,6 +115,8 @@ func main() {
 		model:    *model,
 		api:      &Device{Base: strings.TrimRight(*device, "/"), User: user, Password: pass, HTTP: &http.Client{Timeout: 8 * time.Second}},
 		client:   &http.Client{Timeout: 25 * time.Second},
+		tail: &tailSpeaker{Voice: &LocalTTS{Socket: *mainTTS}, Poll: 300 * time.Millisecond,
+			Idle: 1500 * time.Millisecond, StartWait: 15 * time.Second},
 	}
 	if *wyAddr != "" {
 		l, err := net.Listen("tcp", *wyAddr)
@@ -151,6 +155,7 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
+	s.tail.Cancel() // a new turn interrupts the rest of a long reply
 	start := time.Now()
 	reply := s.answer(r.Context(), in, r.Header.Get("Authorization"))
 	if verbose {
@@ -158,7 +163,12 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 	} else {
 		logf("turn done in %dms", time.Since(start).Milliseconds())
 	}
-	writeSSE(w, reply)
+	head, rest := splitForAgentd(reply, agentdReplyMax)
+	if s.tail == nil {
+		head, rest = reply, nil
+	}
+	writeSSE(w, head)
+	s.tail.Start(rest)
 }
 
 func lastUser(ms []chatMessage) string {
