@@ -156,3 +156,14 @@ func readBookStudy(week string) string {
 	}
 	return startReading(r, fmt.Sprintf("Voy a leer el estudio bíblico de la congregación %s: %s.", label, r.Title), false)
 }
+
+// jwHelp tells the owner everything Mia can do with jw.org and how to ask.
+const jwHelp = "Con jw.org puedo hacer esto. " +
+	"Leer el texto diario de hoy, de mañana o de ayer: di «lee el texto diario». " +
+	"Leer el estudio de La Atalaya de esta semana o de la próxima semana: «lee el estudio de La Atalaya». " +
+	"Leer la guía de actividades de la reunión: «lee la guía de actividades». " +
+	"Leer el estudio de libro de la congregación: «lee el estudio de libro». " +
+	"Leer la lectura bíblica de la semana: «lee la lectura bíblica de esta semana». " +
+	"Leer cualquier capítulo o versículo de la Biblia: «lee Juan 3, versículo 16» o «lee el Salmo 23». " +
+	"Poner música de jw.org: «pon Música internacional» o «pon Canciones originales». " +
+	"Mientras leo, puedes decir «para», después «continúa la lectura», o «lee el párrafo 5» para saltar a un párrafo."

@@ -140,3 +140,21 @@ func TestReadingResumesAfterAnInterruptingTurn(t *testing.T) {
 	}
 	_ = v
 }
+
+func TestJWHelpListsEveryReadingAndHowToAsk(t *testing.T) {
+	got := Exec(&fakeAPI{}, "jw_help", `{}`)
+	for _, want := range []string{
+		"texto diario", "estudio de La Atalaya", "próxima semana", "guía de actividades",
+		"estudio de libro", "lectura bíblica de la semana", "Juan 3, versículo 16", "Salmo 23",
+		"Música internacional", "para", "continúa la lectura", "lee el párrafo 5",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("help must mention %q: %s", want, got)
+		}
+	}
+	for _, name := range []string{"read_watchtower", "read_workbook", "read_book_study", "read_weekly_bible_reading", "read_bible", "resume_reading", "read_paragraph", "daily_text", "play_jw_music", "jw_help"} {
+		if !toolNames[name] {
+			t.Errorf("tool %s must be offered to the model", name)
+		}
+	}
+}
