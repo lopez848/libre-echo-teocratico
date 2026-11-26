@@ -113,7 +113,7 @@ func (y *YouTube) Artist(name string) ([]Track, error) {
 	}
 	var mine []Track
 	for _, h := range hits {
-		if strings.Contains(fold(h.Artist), want) {
+		if similarName(want, fold(h.Artist)) {
 			mine = append(mine, h)
 		}
 	}
@@ -127,7 +127,7 @@ func (y *YouTube) Artist(name string) ([]Track, error) {
 	seen := map[string]bool{}
 	var out []Track
 	for _, tr := range append(mix, mine...) {
-		if seen[tr.URL] || !strings.Contains(fold(tr.Artist), want) {
+		if seen[tr.URL] || !similarName(want, fold(tr.Artist)) {
 			continue
 		}
 		seen[tr.URL] = true
@@ -385,4 +385,56 @@ func (r *rangeReader) Seek(offset int64, whence int) (int64, error) {
 	}
 	r.off = offset
 	return offset, nil
+}
+
+// similarName reports whether a spoken artist name (folded) names the
+// artist: each spoken word must match a word of the artist's name with at
+// most one wrong letter (two in words of five letters or more), because
+// speech recognition spells names as they sound ("Mark Anthony").
+func similarName(want, artist string) bool {
+	if want == "" {
+		return false
+	}
+	if strings.Contains(artist, want) {
+		return true
+	}
+	words := strings.Fields(artist)
+	for _, w := range strings.Fields(want) {
+		allowed := 1
+		if len([]rune(w)) >= 5 {
+			allowed = 2
+		}
+		ok := false
+		for _, a := range words {
+			if editDistance(w, a) <= allowed {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func editDistance(a, b string) int {
+	ra, rb := []rune(a), []rune(b)
+	prev := make([]int, len(rb)+1)
+	cur := make([]int, len(rb)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(ra); i++ {
+		cur[0] = i
+		for j := 1; j <= len(rb); j++ {
+			cost := 1
+			if ra[i-1] == rb[j-1] {
+				cost = 0
+			}
+			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
+		}
+		prev, cur = cur, prev
+	}
+	return prev[len(rb)]
 }

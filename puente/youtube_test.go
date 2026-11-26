@@ -275,3 +275,41 @@ func TestSpokenTitle(t *testing.T) {
 		}
 	}
 }
+
+const marcSearch = `{"contents":{"x":[
+ {"videoRenderer":{"videoId":"marc1","title":{"runs":[{"text":"Marc Anthony - Vivir Mi Vida"}]},"ownerText":{"runs":[{"text":"Marc Anthony"}]},"lengthText":{"simpleText":"4:12"}}},
+ {"videoRenderer":{"videoId":"other","title":{"runs":[{"text":"Otro"}]},"ownerText":{"runs":[{"text":"Romeo Santos"}]},"lengthText":{"simpleText":"3:30"}}}
+]}}`
+
+const marcMix = `{"contents":{"twoColumnWatchNextResults":{"playlist":{"playlist":{"contents":[
+ {"playlistPanelVideoRenderer":{"videoId":"marc1","title":{"simpleText":"Vivir Mi Vida"},"shortBylineText":{"runs":[{"text":"Marc Anthony"}]},"lengthText":{"simpleText":"4:12"}}},
+ {"playlistPanelVideoRenderer":{"videoId":"marc2","title":{"simpleText":"Valió la Pena"},"shortBylineText":{"runs":[{"text":"Marc Anthony"}]},"lengthText":{"simpleText":"4:50"}}}
+]}}}}}`
+
+// Speech recognition spells names as they sound ("Mark Anthony").
+func TestYouTubeArtistToleratesMisspelledNames(t *testing.T) {
+	srv, _ := fakeInnertube(t, map[string]string{"/search": marcSearch, "/next": marcMix})
+	y := &YouTube{HTTP: srv.Client(), Web: srv.URL, Music: srv.URL}
+	got, err := y.Artist("Mark Anthony")
+	if err != nil || len(got) != 2 || got[0].Artist != "Marc Anthony" {
+		t.Fatalf("got %+v %v", got, err)
+	}
+	if _, err := y.Artist("Metallica"); err == nil {
+		t.Fatal("an unrelated name must still fail")
+	}
+}
+
+func TestSimilarName(t *testing.T) {
+	cases := map[[2]string]bool{
+		{"mark anthony", "marc anthony"}:              true,
+		{"juan luis guerra", "juan luis guerra 4.40"}: true,
+		{"carlos vives", "carlos bibes"}:              true,
+		{"metallica", "marc anthony"}:                 false,
+		{"fonseca", "romeo santos"}:                   false,
+	}
+	for c, want := range cases {
+		if got := similarName(c[0], c[1]); got != want {
+			t.Errorf("similarName(%q, %q)=%v want %v", c[0], c[1], got, want)
+		}
+	}
+}

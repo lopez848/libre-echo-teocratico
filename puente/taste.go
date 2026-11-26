@@ -108,7 +108,7 @@ func (t *Taste) Filter(tracks []Track, keepArtist string) []Track {
 	var out []Track
 	for _, tr := range tracks {
 		artist := fold(tr.Artist)
-		requested := keep != "" && strings.Contains(artist, keep)
+		requested := keep != "" && similarName(keep, artist)
 		if t.Songs[tr.URL].dislikedSong() {
 			continue
 		}
