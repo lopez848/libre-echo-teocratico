@@ -83,6 +83,17 @@ func (r *Reader) Loaded() bool {
 	return r.cur != nil
 }
 
+// Forget stops the reading and drops it, so nothing can be resumed.
+func (r *Reader) Forget() {
+	if r == nil {
+		return
+	}
+	r.Stop()
+	r.mu.Lock()
+	r.cur = nil
+	r.mu.Unlock()
+}
+
 // Active reports whether a reading is being spoken (or about to be).
 func (r *Reader) Active() bool {
 	r.mu.Lock()

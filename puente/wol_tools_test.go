@@ -105,10 +105,10 @@ func TestNewTurnStopsTheReader(t *testing.T) {
 	s := &server{upstream: up.URL, api: &fakeAPI{}, client: up.Client()}
 	s.chat(httptest.NewRecorder(), httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{"messages":[{"role":"user","content":"para"}]}`)))
 	if svc.Reader.Active() {
-		t.Fatal("any new turn must stop the reading")
+		t.Fatal("\"para\" must stop the reading")
 	}
-	if _, _, ok := svc.Reader.Resume(); !ok {
-		t.Fatal("the position must survive the stop")
+	if _, _, ok := svc.Reader.Resume(); ok {
+		t.Fatal("\"para\" ends everything: nothing to resume (owner, 2026-11-26)")
 	}
 }
 
@@ -147,7 +147,7 @@ func TestJWHelpListsEveryReadingAndHowToAsk(t *testing.T) {
 	for _, want := range []string{
 		"texto diario", "estudio de La Atalaya", "próxima semana", "guía de actividades",
 		"estudio de libro", "lectura bíblica de la semana", "Juan 3, versículo 16", "Salmo 23",
-		"Música internacional", "para", "continúa la lectura", "lee el párrafo 5",
+		"Música internacional", "«pausa»", "«continuar»", "«reanudar»", "«para» lo detiene todo", "lee el párrafo 5",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("help must mention %q: %s", want, got)

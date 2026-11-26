@@ -21,6 +21,8 @@ Objective: Mia reads this week's (or next week's) Watchtower study article, the 
 - S12 Owner (2026-11-26, verbatim): "me gustaria poder preguntartle que puedes hacer con jw.org y me digas todo lo q puede hacer para asi poder escojer y como pedirlo."
 - S13 Owner (2026-11-26, verbatim): "tambien quiero q reproduca de forma aleatoria adoraciones matutinas o si pido la adoracion matutina mas reciente reprodicir esa, y si agregamos cosas nuevas ir agragandolas, que puedes hacer con jw.org"
 
+- S14 Owner (2026-11-26, verbatim): "si quiero detener todo y seguir con algo diferente usar \"para\" o \"Stop\" y si quiero solo parar pero para luego retomar debe ser \"pausa\" y para seguir donde quedo \"reanudar\" o \"continuar\""; then "tambien podria seguir o continuar con la palabre \"sigue\"".
+
 ## Tasks
 - T1 S2-S5 wol.go: week pages (/es/wol/meetings/r4/lp-s/<ISO year>/<ISO week>), article, workbook and Bible chapter parsers into ordered reading pieces; tests on small synthetic HTML fixtures — inline — DONE 2026-11-26 (RED->GREEN 6 tests; live: this week article 22 pieces, next week article, workbook with weekly reading LAMENTACIONES 3-5, weekly chapters 30 pieces, Juan 3:16-17, Salmo 23)
 - T2 S6 resumable reader: speaks pieces through the main ttsd after agentd's intro, remembers the position on stop, resumes, jumps to a paragraph — inline — DONE 2026-11-26 (RED->GREEN 4 tests, -race clean)
@@ -40,6 +42,8 @@ Objective: Mia reads this week's (or next week's) Watchtower study article, the 
 
 - T11 S12 "qué puedes hacer con jw.org" answers the full list, built from jwFeatures, routed without the model — inline — DONE 2026-11-26 (RED->GREEN; live)
 - T12 S13 morning worship: most recent or random, audio of the jw.org MP4 — inline — DONE 2026-11-26 (RED->GREEN 4 tests, -race clean; live: most recent, random, now playing, next, stop)
+
+- T13 S14 voice controls: "para"/"stop" end everything, "pausa" keeps the place, "sigue"/"continuar"/"reanudar" go on (reading and music) — inline — DONE 2026-11-26 (RED->GREEN 4 tests, -race clean; live on the Echo)
 
 ## Log
 - L1 2026-11-26 Owner request: see S1. Reading mode answer: "Seguido y retomable (Recomendado)".

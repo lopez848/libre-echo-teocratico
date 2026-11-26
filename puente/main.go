@@ -159,6 +159,8 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	s.tail.Cancel()                          // a new turn interrupts the rest of a long reply
 	token, reading := svc.Reader.Interrupt() // and a reading in progress
+	turnReading = reading
+	defer func() { turnReading = false }()
 	start := time.Now()
 	reply := s.answer(r.Context(), in, r.Header.Get("Authorization"))
 	if verbose {
@@ -175,7 +177,7 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 	// After a quick question or a false wake word, go back to the reading,
 	// as speakers do with music. Not after a stop word, or when the turn
 	// started music or touched the reading itself.
-	if reading && !stopWords[fold(lastUser(in.Messages))] && (svc.Player == nil || !svc.Player.Active()) {
+	if reading && !isControl(lastUser(in.Messages)) && (svc.Player == nil || !svc.Player.Active()) {
 		svc.Reader.ResumeIfUntouched(token)
 	}
 }
@@ -202,7 +204,15 @@ func (s *server) answer(ctx context.Context, in inbound, auth string) string {
 		return "No te escuché bien."
 	}
 	if stopWords[fold(user)] {
+		svc.Reader.Forget() // "para" ends the reading for good
+		pausedPlayer = false
 		return Stop(s.api)
+	}
+	if pauseWords[fold(user)] {
+		return pauseAll()
+	}
+	if resumeWords[fold(user)] {
+		return resumeAll()
 	}
 	if isJWHelpQuestion(user) {
 		return jwHelp

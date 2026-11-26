@@ -172,7 +172,7 @@ var jwFeatures = []struct {
 	{[]string{"read_bible"}, "Leer cualquier capítulo o versículo de la Biblia: «lee Juan 3, versículo 16» o «lee el Salmo 23»."},
 	{[]string{"play_jw_music"}, "Poner música de jw.org: «pon Música internacional» o «pon Canciones originales»."},
 	{[]string{"play_morning_worship"}, "Poner la adoración matutina más reciente: «pon la adoración matutina más reciente», o varias en orden aleatorio: «pon adoraciones matutinas»."},
-	{[]string{"resume_reading", "read_paragraph"}, "Mientras leo, puedes decir «para», después «continúa la lectura», o «lee el párrafo 5» para saltar a un párrafo."},
+	{[]string{"resume_reading", "read_paragraph"}, "Mientras leo o suena algo, di «pausa» y después «sigue», «continuar» o «reanudar» para seguir donde quedó; «para» lo detiene todo; y «lee el párrafo 5» salta a un párrafo."},
 }
 
 // jwHelp tells the owner everything Mia can do with jw.org and how to ask.
