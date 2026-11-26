@@ -157,8 +157,8 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	s.tail.Cancel()   // a new turn interrupts the rest of a long reply
-	svc.Reader.Stop() // and a reading in progress (it can be resumed)
+	s.tail.Cancel()                          // a new turn interrupts the rest of a long reply
+	token, reading := svc.Reader.Interrupt() // and a reading in progress
 	start := time.Now()
 	reply := s.answer(r.Context(), in, r.Header.Get("Authorization"))
 	if verbose {
@@ -172,6 +172,12 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	writeSSE(w, head)
 	s.tail.Start(rest)
+	// After a quick question or a false wake word, go back to the reading,
+	// as speakers do with music. Not after a stop word, or when the turn
+	// started music or touched the reading itself.
+	if reading && !stopWords[fold(lastUser(in.Messages))] && (svc.Player == nil || !svc.Player.Active()) {
+		svc.Reader.ResumeIfUntouched(token)
+	}
 }
 
 func lastUser(ms []chatMessage) string {

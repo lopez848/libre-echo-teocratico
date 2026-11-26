@@ -32,6 +32,34 @@ func (r *Reader) Start(rd Reading, from int) {
 	r.launch()
 }
 
+// Interrupt stops the reading for a new turn and returns a token for
+// ResumeIfUntouched; ok is false when nothing was being read.
+func (r *Reader) Interrupt() (token int, ok bool) {
+	if r == nil {
+		return 0, false
+	}
+	was := r.Active()
+	r.Stop()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.gen, was
+}
+
+// ResumeIfUntouched resumes after a turn that did not start, stop or move
+// the reading itself (a quick question, or a false wake word).
+func (r *Reader) ResumeIfUntouched(token int) bool {
+	if r == nil {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.gen != token || r.cur == nil || r.pos >= len(r.cur.Pieces) {
+		return false
+	}
+	r.launch()
+	return true
+}
+
 // Stop ends the reading and keeps its position.
 func (r *Reader) Stop() {
 	if r == nil {

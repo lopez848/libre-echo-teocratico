@@ -14,8 +14,63 @@ import (
 // ReadPiece is one spoken unit of a long reading. Para is the article
 // paragraph or first Bible verse it starts at, 0 for intros and reviews.
 type ReadPiece struct {
-	Para int
-	Text string
+	Para  int
+	Text  string
+	Reads []BibleRef // texts marked "lee": read aloud after the paragraph
+}
+
+// BibleRef is a chapter and verse range.
+type BibleRef struct {
+	Book, Chapter, From, To int
+}
+
+var (
+	reLee     = regexp.MustCompile(`(?s)<strong>\s*\(?\s*lee\s*</strong>\s*((?:<a[^>]*class="b"[^>]*>.*?</a>(?:\s*(?:,|;|\s+y)\s*)?)+)`)
+	reLeeLink = regexp.MustCompile(`(?s)<a[^>]*class="b"[^>]*>(.*?)</a>`)
+	reRefText = regexp.MustCompile(`^(.+?)\s+(\d+):(\d+)(?:\s*[-–]\s*(\d+)|((?:,\s*\d+)+))?$`)
+)
+
+// parseRef reads "Hebreos 7:25", "Heb. 4:15, 16" or "1 Juan 2:1-3".
+func parseRef(text string) (BibleRef, bool) {
+	m := reRefText.FindStringSubmatch(strings.TrimSpace(text))
+	if m == nil {
+		return BibleRef{}, false
+	}
+	name := strings.TrimSuffix(m[1], ".")
+	book := 0
+	if n, ok := wbAbbrev[strings.ReplaceAll(fold(name), " ", "")]; ok {
+		book = n
+	} else if n, _, ok := BibleBook(name); ok {
+		book = n
+	} else if full, ok := bibleBooks[m[1]]; ok {
+		book, _, _ = BibleBook(full)
+	}
+	if book == 0 {
+		return BibleRef{}, false
+	}
+	ch, _ := strconv.Atoi(m[2])
+	from, _ := strconv.Atoi(m[3])
+	to := from
+	if m[4] != "" {
+		to, _ = strconv.Atoi(m[4])
+	} else if m[5] != "" {
+		nums := numsOf(m[5])
+		to = nums[len(nums)-1]
+	}
+	return BibleRef{book, ch, from, to}, true
+}
+
+// leeRefs returns the texts marked with a bold "lee" in a paragraph.
+func leeRefs(raw string) []BibleRef {
+	var out []BibleRef
+	for _, m := range reLee.FindAllStringSubmatch(raw, -1) {
+		for _, l := range reLeeLink.FindAllStringSubmatch(m[1], -1) {
+			if r, ok := parseRef(cleanHTML(l[1])); ok {
+				out = append(out, r)
+			}
+		}
+	}
+	return out
 }
 
 // Reading is a long text from wol.jw.org split into spoken pieces.
@@ -329,7 +384,7 @@ func ParseStudyArticle(page string) (Reading, error) {
 				body = head + " " + body
 				pendingFirst = false
 			}
-			r.Pieces = append(r.Pieces, ReadPiece{Para: n, Text: body})
+			r.Pieces = append(r.Pieces, ReadPiece{Para: n, Text: body, Reads: leeRefs(inner)})
 		}
 	}
 	if r.Title == "" || len(r.Pieces) == 0 {
@@ -503,7 +558,29 @@ func (j *JW) Watchtower(ctx context.Context, t time.Time) (Reading, error) {
 	if err != nil {
 		return Reading{}, err
 	}
-	return ParseStudyArticle(page)
+	r, err := ParseStudyArticle(page)
+	if err != nil {
+		return r, err
+	}
+	// Texts marked "lee" are read in the meeting: append them to their
+	// paragraph so the reading includes them.
+	for i, p := range r.Pieces {
+		for _, ref := range p.Reads {
+			b, err := j.Bible(ctx, ref.Book, ref.Chapter, ref.From, ref.To)
+			if err != nil {
+				logf("wol lee text %+v: %v", ref, err)
+				continue
+			}
+			for k, bp := range b.Pieces {
+				if k == 0 {
+					r.Pieces[i].Text += " Leamos " + bp.Text
+				} else {
+					r.Pieces[i].Text += " " + bp.Text
+				}
+			}
+		}
+	}
+	return r, nil
 }
 
 // Workbook returns the "Vida y Ministerio" week that contains t.

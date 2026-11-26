@@ -110,3 +110,33 @@ func TestNewTurnStopsTheReader(t *testing.T) {
 		t.Fatal("the position must survive the stop")
 	}
 }
+
+func TestReadingResumesAfterAnInterruptingTurn(t *testing.T) {
+	v, _ := withWOL(t)
+	long := Reading{Title: "Largo", Pieces: []ReadPiece{{Text: "Uno."}, {Text: "Dos."}, {Text: "Tres."}}}
+	hits := 0
+	up := newUpstream(t, `{"choices":[{"message":{"role":"assistant","content":"No entendí bien."}}]}`, &hits)
+	defer up.Close()
+	s := &server{upstream: up.URL, api: &fakeAPI{}, client: up.Client()}
+	turn := func(text string) {
+		req := httptest.NewRequest("POST", "/v1/chat/completions",
+			strings.NewReader(`{"messages":[{"role":"user","content":"`+text+`"}]}`))
+		req.Header.Set("Authorization", "Bearer k")
+		s.chat(httptest.NewRecorder(), req)
+	}
+	slow := &slowVoice{dur: 30 * time.Millisecond}
+	svc.Reader.Voice = slow
+	svc.Reader.Start(long, 0)
+	waitFor(t, func() bool { return len(slow.said()) >= 1 })
+	turn("qué hora es") // a false wake or a quick question
+	if !svc.Reader.Active() {
+		t.Fatal("after a turn that is not a stop, the reading must resume")
+	}
+	waitFor(t, func() bool { return strings.Contains(strings.Join(slow.said(), " "), "Tres.") })
+	svc.Reader.Start(long, 0)
+	turn("para")
+	if svc.Reader.Active() {
+		t.Fatal("a stop word must leave the reading stopped")
+	}
+	_ = v
+}

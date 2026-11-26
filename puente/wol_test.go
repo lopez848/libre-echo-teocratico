@@ -30,8 +30,8 @@ const wolStudyPage = `<html><article id="article"><div class="scalableui">
 <p data-pid="79">Otro pie de imagen sin número.</p>
 <h2 data-pid="9">UN SUBTÍTULO</h2>
 <p class="qu" data-pid="42">3, 4. ¿Pregunta doble?</p>
-<p data-pid="10">3 Tercer párrafo.</p>
-<p data-pid="11">4 Cuarto párrafo.</p>
+<p data-pid="10">3 Tercer párrafo (<strong>lee</strong> <a href="/es/wol/bc/r" class="b"><strong>Hebreos 7:25</strong></a>).</p>
+<p data-pid="11">4 Cuarto párrafo <strong>(lee</strong> <a href="/es/wol/bc/s" class="b"><strong>Hebreos 4:15</strong></a><strong>).</strong></p>
 <h2>¿QUÉ RESPONDERÍAS?</h2><ul><li><p>¿Repaso uno? Respuesta</p></li><li><p>¿Repaso dos? Respuesta</p></li></ul>
 <p class="pubRefs" data-pid="37">CANCIÓN 2 Otra canción</p>
 </div></article></html>`
@@ -90,10 +90,19 @@ func TestParseStudyArticle(t *testing.T) {
 	if p := r.Pieces[2].Text; !strings.HasPrefix(p, "Párrafo 2. Según Hebreos 4, versículo 16, ¿segunda pregunta?") || !strings.Contains(p, "(Primera de Juan 4, versículo 8)") || !strings.Contains(p, "Hebreos 5, versículo 1") || strings.Contains(p, "imagen") || strings.Contains(p, "Pie de") {
 		t.Fatalf("paragraph 2 must drop captions and image notes: %q", p)
 	}
-	if p := r.Pieces[3].Text; p != "Un subtítulo. Párrafos 3 y 4. ¿Pregunta doble? Tercer párrafo." {
+	if p := r.Pieces[3].Text; p != "Un subtítulo. Párrafos 3 y 4. ¿Pregunta doble? Tercer párrafo (lee Hebreos 7, versículo 25)." {
 		t.Fatalf("paragraph 3 %q", p)
 	}
-	if p := r.Pieces[4].Text; p != "Cuarto párrafo." {
+	if got := fmt.Sprint(r.Pieces[3].Reads); got != "[{58 7 25 25}]" {
+		t.Fatalf("the bold 'lee' text must be recorded: %s", got)
+	}
+	if len(r.Pieces[2].Reads) != 0 {
+		t.Fatalf("plain citations are not 'lee' texts: %v", r.Pieces[2].Reads)
+	}
+	if got := fmt.Sprint(r.Pieces[4].Reads); got != "[{58 4 15 15}]" {
+		t.Fatalf("'(lee' inside the bold text must be recorded too: %s", got)
+	}
+	if p := r.Pieces[4].Text; p != "Cuarto párrafo (lee Hebreos 4, versículo 15)." {
 		t.Fatalf("paragraph 4 %q", p)
 	}
 	if p := r.Pieces[5].Text; p != "¿Qué responderías? ¿Repaso uno? ¿Repaso dos?" {
@@ -208,6 +217,9 @@ func fakeWOL(t *testing.T) (*JW, *[]string) {
 			if c == 23 {
 				n = 12 // long enough to need the reader
 			}
+			if b == 58 {
+				n = 30 // Hebreos 7:25 for the "lee" text
+			}
 			w.Write([]byte(wolChapter(b, c, n)))
 		default:
 			http.NotFound(w, r)
@@ -226,11 +238,14 @@ func TestWOLWeekPagesUseISOWeek(t *testing.T) {
 	if err != nil || r.Title != "Un artículo de prueba" {
 		t.Fatalf("%+v %v", r.Title, err)
 	}
+	if p := r.Pieces[3].Text; !strings.HasSuffix(p, "Tercer párrafo (lee Hebreos 7, versículo 25). Leamos Hebreos 7, versículo 25. Versículo 25 primera línea, y segunda línea del versículo 25.") {
+		t.Fatalf("the 'lee' text must be read after its paragraph: %q", p)
+	}
 	if (*paths)[0] != "/es/wol/meetings/r4/lp-s/2026/48" {
 		t.Fatalf("this week: %v", *paths)
 	}
 	j.Watchtower(context.Background(), thu.AddDate(0, 0, 7))
-	if (*paths)[2] != "/es/wol/meetings/r4/lp-s/2026/49" {
+	if !strings.Contains(strings.Join(*paths, " "), "/es/wol/meetings/r4/lp-s/2026/49") {
 		t.Fatalf("next week: %v", *paths)
 	}
 	wr, err := j.WeeklyBibleReading(context.Background(), thu)
