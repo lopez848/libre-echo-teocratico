@@ -23,7 +23,7 @@ if [ "${1:-}" = "--build-agent" ]; then
 fi
 
 VER=${1:?usage: ota-release.sh vX.Y.Z [--publish] | --build-agent}
-case "$VER" in v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "version must look like v1.2.3" >&2; exit 1 ;; esac
+echo "$VER" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' || { echo "version must look like v1.2.3" >&2; exit 1; }
 [ -z "$(git -C "$ROOT" status --porcelain)" ] || { echo "working tree not clean" >&2; exit 1; }
 OUT=$ROOT/dist/$VER
 mkdir -p "$OUT"
