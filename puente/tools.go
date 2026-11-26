@@ -34,6 +34,7 @@ var toolSpecs = json.RawMessage(`[
 {"type":"function","function":{"name":"set_do_not_disturb","description":"Turn do-not-disturb mode on or off.","parameters":{"type":"object","properties":{"enabled":{"type":"boolean"}},"required":["enabled"]}}},
 {"type":"function","function":{"name":"daily_text","description":"Read the daily Bible text (texto diario, Examinemos las Escrituras) from wol.jw.org.","parameters":{"type":"object","properties":{"day":{"type":"string","enum":["hoy","mañana","ayer","pasado mañana","anteayer"],"description":"Relative day. Always use this for hoy, mañana, ayer, pasado mañana or anteayer; the device computes the date."},"date":{"type":"string","description":"YYYY-MM-DD, only for a specific calendar date the user names (e.g. el 3 de diciembre). Omit both for today."}}}}},
 {"type":"function","function":{"name":"play_jw_music","description":"Play a music section from jw.org in random order, e.g. 'reproduce desde jw.org Música internacional'.","parameters":{"type":"object","properties":{"collection":{"type":"string","enum":["Música internacional","Canciones originales","Cantemos con gozo a Jehová (para las reuniones)","Cantemos con gozo a Jehová (cantadas)","Cantemos con gozo a Jehová (instrumental)","Cantemos a Jehová (coro y orquesta)","Canciones para niños","Melodías del Reino"]}},"required":["collection"]}}},
+{"type":"function","function":{"name":"play_youtube","description":"Play music from YouTube. mode artist: only songs by one artist ('pon canciones de Juan Luis Guerra'); mode song: one specific song, then similar songs ('pon Bachata Rosa', 'pon la canción Provenza de Karol G'); mode like_current: songs similar to the one playing now ('pon algo parecido a esto'). Not for jw.org music or radio stations.","parameters":{"type":"object","properties":{"query":{"type":"string","description":"artist name, or song title with optional artist; empty for like_current"},"mode":{"type":"string","enum":["artist","song","like_current"]}},"required":["mode"]}}},
 {"type":"function","function":{"name":"now_playing","description":"Say which song is playing now.","parameters":{"type":"object","properties":{}}}},
 {"type":"function","function":{"name":"sleep_sounds","description":"Play relaxing background noise to sleep or concentrate.","parameters":{"type":"object","properties":{"sound":{"type":"string","enum":["white","pink","brown","heartbeat"],"description":"Default brown"},"minutes":{"type":"integer","description":"How long, 0 = until stopped"}}}}}
 ]`)
@@ -106,11 +107,16 @@ func Exec(api API, name, args string) string {
 		return dailyText(strArg(a, "day"), strArg(a, "date"))
 	case "play_jw_music":
 		return playJWMusic(strArg(a, "collection"), true)
+	case "play_youtube":
+		return playYouTube(strArg(a, "query"), strArg(a, "mode"))
 	case "now_playing":
 		if svc.Player == nil {
 			return "No hay nada sonando de una lista."
 		}
 		if t, name, ok := svc.Player.Current(); ok {
+			if strings.HasPrefix(t.URL, "yt:") {
+				return "Está sonando " + withArtist(t) + "."
+			}
 			return fmt.Sprintf("Está sonando %s, de %s.", t.Title, name)
 		}
 		return "No hay nada sonando de una lista."
@@ -430,6 +436,9 @@ func mediaControl(api API, action string) string {
 			if t.Title == "" {
 				return "Esa era la última canción de la lista."
 			}
+			if strings.HasPrefix(t.URL, "yt:") {
+				return "Poniendo " + spokenTitle(t) + "."
+			}
 			return "Poniendo " + t.Title + "."
 		case "pause":
 			if err := p.Radio.Pause(); err != nil {
@@ -615,6 +624,7 @@ func firstNonEmpty(a, b string) string {
 // Services holds optional integrations; nil fields disable their tools.
 type Services struct {
 	JW       *JW
+	YT       *YouTube
 	Player   *Player
 	Location *time.Location
 	Now      func() time.Time
@@ -686,4 +696,114 @@ func playJWMusic(collection string, shuffle bool) string {
 		return failed(err)
 	}
 	return fmt.Sprintf("Poniendo %s de jw.org en orden aleatorio. Empieza %s.", name, first.Title)
+}
+
+// playYouTube starts a YouTube queue: one artist shuffled, one song followed
+// by similar songs, or songs similar to the current one.
+func playYouTube(query, mode string) string {
+	if svc.YT == nil || svc.Player == nil {
+		return "Todavía no puedo poner música de YouTube."
+	}
+	query = strings.TrimSpace(query)
+	switch mode {
+	case "like_current":
+		cur, _, ok := svc.Player.Current()
+		if !ok || !strings.HasPrefix(cur.URL, "yt:") {
+			return "No está sonando nada de YouTube para buscar parecidas."
+		}
+		similar, err := svc.YT.Similar(strings.TrimPrefix(cur.URL, "yt:"))
+		if err != nil {
+			logf("youtube similar: %v", err)
+			return "No pude traer canciones parecidas de YouTube."
+		}
+		queue := withoutTrack(similar, cur.URL)
+		first, err := svc.Player.Start("canciones parecidas a "+spokenTitle(cur), queue, false)
+		if err != nil {
+			return failed(err)
+		}
+		return fmt.Sprintf("Poniendo canciones parecidas a %s. Empieza %s.", spokenTitle(cur), withArtist(first))
+	case "artist":
+		if query == "" {
+			return "¿Qué canción o artista quieres?"
+		}
+		tracks, err := svc.YT.Artist(query)
+		if err != nil || len(tracks) == 0 {
+			logf("youtube artist: %v", err)
+			return "No encontré canciones de " + query + " en YouTube."
+		}
+		first, err := svc.Player.Start("canciones de "+query, tracks, true)
+		if err != nil {
+			return failed(err)
+		}
+		return fmt.Sprintf("Poniendo canciones de %s en orden aleatorio. Empieza %s.", query, spokenTitle(first))
+	default: // song
+		if query == "" {
+			return "¿Qué canción o artista quieres?"
+		}
+		hits, err := svc.YT.Search(query)
+		if err != nil || len(hits) == 0 {
+			logf("youtube search: %v", err)
+			return "No encontré " + query + " en YouTube."
+		}
+		song := hits[0]
+		queue := []Track{song}
+		if similar, err := svc.YT.Similar(strings.TrimPrefix(song.URL, "yt:")); err == nil {
+			queue = append(queue, withoutTrack(similar, song.URL)...)
+		} else {
+			logf("youtube similar: %v", err)
+		}
+		if _, err := svc.Player.Start(spokenTitle(song)+" y parecidas", queue, false); err != nil {
+			return failed(err)
+		}
+		return fmt.Sprintf("Poniendo %s, y después canciones parecidas.", withArtist(song))
+	}
+}
+
+func withoutTrack(tracks []Track, url string) []Track {
+	out := make([]Track, 0, len(tracks))
+	for _, t := range tracks {
+		if t.URL != url {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+func withArtist(t Track) string {
+	if t.Artist == "" {
+		return spokenTitle(t)
+	}
+	return spokenTitle(t) + ", de " + t.Artist
+}
+
+// spokenTitle cleans a YouTube title for speech: drops bracketed notes like
+// "(Video Oficial)" and an "Artist - " prefix.
+func spokenTitle(t Track) string {
+	title := t.Title
+	var b strings.Builder
+	depth := 0
+	for _, r := range title {
+		switch r {
+		case '(', '[':
+			depth++
+		case ')', ']':
+			if depth > 0 {
+				depth--
+			}
+		default:
+			if depth == 0 {
+				b.WriteRune(r)
+			}
+		}
+	}
+	clean := strings.Join(strings.Fields(b.String()), " ")
+	if i := strings.Index(clean, " - "); i >= 0 {
+		if t.Artist == "" || strings.Contains(fold(clean[:i]), fold(t.Artist)) {
+			clean = strings.TrimSpace(clean[i+3:])
+		}
+	}
+	if clean == "" {
+		return title
+	}
+	return clean
 }

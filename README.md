@@ -8,6 +8,7 @@ no bootloader or partition changes.
 
 - **Actions in Spanish**: timers, alarms, reminders, volume, do not disturb, stop, time and weather.
 - **Content from jw.org**: the daily text and the music sections, shuffled, with "what's playing" and "next".
+- **YouTube music**: songs by one artist ("pon canciones de Juan Luis Guerra"), one song followed by similar songs ("pon Provenza de Karol G"), or songs like the current one ("pon algo parecido a esto"). Audio is AAC, decoded on the Echo; no account needed. It relies on YouTube's app API, so it can break when YouTube changes it.
 - **Fast cloud voice**: NVIDIA Magpie `ES-US.Mia`, served to the device over the Wyoming protocol,
   with the local Piper voice as a fallback.
 
@@ -18,6 +19,7 @@ mic → STT (Spanish) → agentd ──OpenAI API──▶ puente (127.0.0.1:180
                                                  │  tool calls
                                                  ├──▶ LibreEcho web API (timers, alarms, volume…)
                                                  ├──▶ jw.org (daily text, music)
+                                                 ├──▶ YouTube / YouTube Music (search, mixes, AAC audio)
                                                  └──▶ radiod / audio bus (music playback)
 ttsd ──Wyoming──▶ puente ──▶ NVIDIA Magpie TTS (fallback: local Piper)
 ```

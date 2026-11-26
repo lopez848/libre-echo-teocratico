@@ -23,7 +23,7 @@ import (
 type BusPlayer struct {
 	Bus     string // /run/libreecho-audio/media.pcm
 	HTTP    *http.Client
-	Release func() // frees the bus (stops radiod) before writing
+	Release func()   // frees the bus (stops radiod) before writing
 	YT      *YouTube // resolves yt:<videoId> tracks to AAC audio
 
 	mu      sync.Mutex

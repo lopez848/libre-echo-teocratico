@@ -182,3 +182,96 @@ func TestRangeReaderFetchesChunksAndSeeks(t *testing.T) {
 		t.Fatalf("after seek got %q", buf)
 	}
 }
+
+func withYouTube(t *testing.T, y *YouTube) *fakeRadio {
+	t.Helper()
+	old := *svc
+	t.Cleanup(func() { *svc = old })
+	r := &fakeRadio{}
+	svc.YT = y
+	svc.Player = &Player{Radio: r, Poll: time.Hour}
+	return r
+}
+
+func TestPlayYouTubeArtist(t *testing.T) {
+	srv, _ := fakeInnertube(t, map[string]string{"/search": searchAnswer, "/next": webMixAnswer})
+	r := withYouTube(t, &YouTube{HTTP: srv.Client(), Web: srv.URL, Music: srv.URL})
+	got := Exec(&fakeAPI{}, "play_youtube", `{"query":"Juan Luis Guerra","mode":"artist"}`)
+	if !strings.HasPrefix(got, "Poniendo canciones de Juan Luis Guerra en orden aleatorio. Empieza ") {
+		t.Fatalf("reply %q", got)
+	}
+	if len(r.played) != 1 || !strings.HasPrefix(r.played[0], "yt:song") {
+		t.Fatalf("played %v", r.played)
+	}
+	cur, name, _ := svc.Player.Current()
+	if name != "canciones de Juan Luis Guerra" || !strings.Contains(got, spokenTitle(cur)) {
+		t.Fatalf("current %+v %q", cur, name)
+	}
+	want := "Está sonando " + spokenTitle(cur) + ", de " + cur.Artist + "."
+	if np := Exec(&fakeAPI{}, "now_playing", ``); np != want {
+		t.Fatalf("now_playing=%q want %q", np, want)
+	}
+}
+
+func TestPlayYouTubeSongThenSimilar(t *testing.T) {
+	srv, _ := fakeInnertube(t, map[string]string{"/search": searchAnswer, "/next": musicMixAnswer})
+	r := withYouTube(t, &YouTube{HTTP: srv.Client(), Web: srv.URL, Music: srv.URL})
+	got := Exec(&fakeAPI{}, "play_youtube", `{"query":"bachata rosa","mode":"song"}`)
+	if got != "Poniendo Bachata Rosa, de Juan Luis Guerra, y después canciones parecidas." {
+		t.Fatalf("reply %q", got)
+	}
+	if len(r.played) != 1 || r.played[0] != "yt:song1" {
+		t.Fatalf("the requested song plays first: %v", r.played)
+	}
+	if got := Exec(&fakeAPI{}, "media_control", `{"action":"next"}`); !strings.Contains(got, "Provenza") {
+		t.Fatalf("next must go to the similar songs: %q", got)
+	}
+}
+
+func TestPlayYouTubeLikeCurrent(t *testing.T) {
+	srv, _ := fakeInnertube(t, map[string]string{"/next": musicMixAnswer})
+	r := withYouTube(t, &YouTube{HTTP: srv.Client(), Web: srv.URL, Music: srv.URL})
+	if got := Exec(&fakeAPI{}, "play_youtube", `{"mode":"like_current"}`); got != "No está sonando nada de YouTube para buscar parecidas." {
+		t.Fatalf("nothing playing: %q", got)
+	}
+	svc.Player.Start("x", []Track{{Title: "Provenza", Artist: "KAROL G", URL: "yt:seed"}}, false)
+	got := Exec(&fakeAPI{}, "play_youtube", `{"mode":"like_current"}`)
+	if got != "Poniendo canciones parecidas a Provenza. Empieza Según Quién, de Maluma." {
+		t.Fatalf("reply %q", got)
+	}
+	if r.played[len(r.played)-1] != "yt:m2" {
+		t.Fatalf("must skip the current song: %v", r.played)
+	}
+}
+
+func TestPlayYouTubeFailures(t *testing.T) {
+	old := *svc
+	defer func() { *svc = old }()
+	svc.YT = nil
+	if got := Exec(&fakeAPI{}, "play_youtube", `{"query":"x","mode":"artist"}`); got != "Todavía no puedo poner música de YouTube." {
+		t.Fatalf("no client: %q", got)
+	}
+	srv, _ := fakeInnertube(t, map[string]string{"/search": searchAnswer, "/next": webMixAnswer})
+	withYouTube(t, &YouTube{HTTP: srv.Client(), Web: srv.URL, Music: srv.URL})
+	if got := Exec(&fakeAPI{}, "play_youtube", `{"query":"Metallica","mode":"artist"}`); got != "No encontré canciones de Metallica en YouTube." {
+		t.Fatalf("unknown artist: %q", got)
+	}
+	if got := Exec(&fakeAPI{}, "play_youtube", `{"query":"","mode":"song"}`); got != "¿Qué canción o artista quieres?" {
+		t.Fatalf("empty query: %q", got)
+	}
+}
+
+func TestSpokenTitle(t *testing.T) {
+	cases := []struct{ title, artist, want string }{
+		{"Juan Luis Guerra 4.40 - Vale la Pena (Live) (Video Oficial)", "Juan Luis Guerra", "Vale la Pena"},
+		{"KAROL G, Shakira - TQG (Official Video)", "KAROL G", "TQG"},
+		{"Bachata Rosa [Remastered 2005]", "Juan Luis Guerra", "Bachata Rosa"},
+		{"Según Quién", "Maluma", "Según Quién"},
+		{"(Live)", "X", "(Live)"},
+	}
+	for _, c := range cases {
+		if got := spokenTitle(Track{Title: c.title, Artist: c.artist}); got != c.want {
+			t.Errorf("spokenTitle(%q)=%q want %q", c.title, got, c.want)
+		}
+	}
+}

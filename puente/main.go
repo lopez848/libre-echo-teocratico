@@ -93,11 +93,14 @@ func main() {
 	}
 	svc.JW = &JW{HTTP: &http.Client{Timeout: 10 * time.Second}, Location: svc.Location,
 		WOLBase: "https://wol.jw.org", Mediator: "https://b.jw-cdn.org/apis/mediator/v1"}
+	svc.YT = &YouTube{HTTP: &http.Client{Timeout: 15 * time.Second},
+		Web: "https://www.youtube.com", Music: "https://music.youtube.com"}
 	radiod := &RadioSock{Path: *radioSock}
 	svc.Player = &Player{AlwaysAdvance: true, Radio: &BusPlayer{
 		Bus:     "/run/libreecho-audio/media.pcm",
 		HTTP:    &http.Client{Timeout: 0},
 		Release: func() { _ = radiod.Stop() },
+		YT:      svc.YT,
 	}}
 	user, pass, err := LoadCreds(*creds)
 	if err != nil {
