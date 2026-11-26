@@ -204,6 +204,9 @@ func (s *server) answer(ctx context.Context, in inbound, auth string) string {
 	if stopWords[fold(user)] {
 		return Stop(s.api)
 	}
+	if isJWHelpQuestion(user) {
+		return jwHelp
+	}
 	sys := systemPrompt
 	for _, m := range in.Messages {
 		if m.Role == "system" {

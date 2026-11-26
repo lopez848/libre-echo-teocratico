@@ -167,3 +167,25 @@ const jwHelp = "Con jw.org puedo hacer esto. " +
 	"Leer cualquier capítulo o versículo de la Biblia: «lee Juan 3, versículo 16» o «lee el Salmo 23». " +
 	"Poner música de jw.org: «pon Música internacional» o «pon Canciones originales». " +
 	"Mientras leo, puedes decir «para», después «continúa la lectura», o «lee el párrafo 5» para saltar a un párrafo."
+
+// isJWHelpQuestion recognizes "¿qué puedes hacer con jw.org?" however the
+// speech recognizer spells jw.org, so the full list never depends on the
+// model choosing the right tool.
+func isJWHelpQuestion(text string) bool {
+	f := fold(text)
+	asks := false
+	for _, a := range []string{"que puedes hacer", "que sabes hacer", "que mas puedes hacer", "que cosas puedes hacer", "que opciones"} {
+		if strings.Contains(f, a) {
+			asks = true
+		}
+	}
+	if !asks {
+		return false
+	}
+	for _, k := range []string{"jw", "jota", "doble uve", "punto org", "biblioteca en linea", "wol"} {
+		if strings.Contains(f, k) {
+			return true
+		}
+	}
+	return false
+}

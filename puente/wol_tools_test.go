@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -156,5 +157,24 @@ func TestJWHelpListsEveryReadingAndHowToAsk(t *testing.T) {
 		if !toolNames[name] {
 			t.Errorf("tool %s must be offered to the model", name)
 		}
+	}
+}
+
+func TestJWHelpQuestionSkipsTheModel(t *testing.T) {
+	hits := 0
+	up := newUpstream(t, `{"choices":[{"message":{"role":"assistant","content":"resumen inventado"}}]}`, &hits)
+	defer up.Close()
+	s := &server{upstream: up.URL, api: &fakeAPI{}, client: up.Client()}
+	for _, q := range []string{"¿Qué puedes hacer con jw.org?", "que puedes hacer con jota doble uve", "qué sabes hacer con jw punto org", "qué puedes hacer con la biblioteca en línea"} {
+		got := s.answer(context.Background(), inbound{Messages: []chatMessage{{Role: "user", Content: q}}}, "Bearer k")
+		if got != jwHelp {
+			t.Errorf("%q -> %q", q, got)
+		}
+	}
+	if hits != 0 {
+		t.Fatalf("the help question must not go to the model: %d calls", hits)
+	}
+	if got := s.answer(context.Background(), inbound{Messages: []chatMessage{{Role: "user", Content: "qué puedes hacer"}}}, "Bearer k"); got == jwHelp {
+		t.Fatal("a general question is not the jw.org help")
 	}
 }
