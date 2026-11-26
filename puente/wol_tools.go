@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"strings"
 	"time"
 )
@@ -51,6 +52,20 @@ func playOfficial(name string, tracks []Track) {
 			logf("official audio: %v", err)
 		}
 	})
+}
+
+// startMusic decides the order now (the reply names the first track) and
+// starts playing once agentd has finished saying it.
+func startMusic(name string, tracks []Track, shuffle bool) (Track, error) {
+	if len(tracks) == 0 {
+		return Track{}, errNoQueue
+	}
+	q := append([]Track(nil), tracks...)
+	if shuffle {
+		rand.Shuffle(len(q), func(i, j int) { q[i], q[j] = q[j], q[i] })
+	}
+	playOfficial(name, q)
+	return q[0], nil
 }
 
 // watchtowerAudio starts the study article recording of the week of t.
@@ -322,13 +337,13 @@ func playMorningWorship(mode string) string {
 		return "No pude traer las adoraciones matutinas de jw.org."
 	}
 	if f := fold(mode); strings.Contains(f, "reciente") || strings.Contains(f, "ultima") || strings.Contains(f, "nueva") {
-		first, err := svc.Player.Start("la adoración matutina más reciente", tracks[:1], false)
+		first, err := startMusic("la adoración matutina más reciente", tracks[:1], false)
 		if err != nil {
 			return failed(err)
 		}
 		return "Poniendo la adoración matutina más reciente: " + spoken(first.Title) + "."
 	}
-	first, err := svc.Player.Start("adoraciones matutinas", tracks, true)
+	first, err := startMusic("adoraciones matutinas", tracks, true)
 	if err != nil {
 		return failed(err)
 	}

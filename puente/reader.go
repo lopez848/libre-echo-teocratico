@@ -88,6 +88,7 @@ func (r *Reader) AfterSilence(fn func()) {
 	r.mu.Unlock()
 	go func() {
 		defer cancel()
+		start := time.Now()
 		if !waitSilence(ctx, r.Voice, r.Poll, r.Idle, r.StartWait) {
 			return
 		}
@@ -95,6 +96,7 @@ func (r *Reader) AfterSilence(fn func()) {
 		ok := r.gen == gen && ctx.Err() == nil
 		r.mu.Unlock()
 		if ok {
+			logf("after silence: starting after %dms", time.Since(start).Milliseconds())
 			fn()
 		}
 	}()

@@ -106,3 +106,22 @@ func TestJWHelpCoversEveryJWTool(t *testing.T) {
 		t.Error(fmt.Sprintf("help must mention morning worship: %s", jwHelp))
 	}
 }
+
+// Music must wait for agentd to finish "Poniendo …" instead of playing over it.
+func TestMusicStartsAfterTheSpokenIntro(t *testing.T) {
+	r := withWorship(t)
+	v := &fakeVoice{busyUntil: time.Now().Add(80 * time.Millisecond)} // agentd still talking
+	svc.Reader = &Reader{Voice: v, Poll: 2 * time.Millisecond, Idle: 20 * time.Millisecond, StartWait: time.Second}
+	silent := time.Now().Add(80 * time.Millisecond)
+	got := Exec(&fakeAPI{}, "play_morning_worship", `{"mode":"reciente"}`)
+	if !strings.HasPrefix(got, "Poniendo la adoración matutina más reciente: ") {
+		t.Fatalf("reply %q", got)
+	}
+	if r.count() != 0 {
+		t.Fatal("the music must not start while the intro is spoken")
+	}
+	waitFor(t, func() bool { return r.count() == 1 })
+	if time.Now().Before(silent) {
+		t.Fatal("started before the intro ended")
+	}
+}

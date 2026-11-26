@@ -721,7 +721,7 @@ func playJWMusic(collection string, shuffle bool) string {
 		logf("jw collection: %v", err)
 		return "No pude traer la música de jw.org."
 	}
-	first, err := svc.Player.Start(name, tracks, shuffle)
+	first, err := startMusic(name, tracks, shuffle)
 	if err != nil {
 		return failed(err)
 	}
@@ -747,7 +747,7 @@ func playYouTube(query, mode string) string {
 			return "No pude traer canciones parecidas de YouTube."
 		}
 		queue := svc.Taste.Rank(svc.Taste.Filter(withoutTrack(similar, cur.URL), ""))
-		first, err := svc.Player.Start("canciones parecidas a "+spokenTitle(cur), queue, false)
+		first, err := startMusic("canciones parecidas a "+spokenTitle(cur), queue, false)
 		if err != nil {
 			return failed(err)
 		}
@@ -761,7 +761,7 @@ func playYouTube(query, mode string) string {
 			logf("youtube artist: %v", err)
 			return "No encontré canciones de " + query + " en YouTube."
 		}
-		first, err := svc.Player.Start("canciones de "+query, svc.Taste.Filter(tracks, query), true)
+		first, err := startMusic("canciones de "+query, svc.Taste.Filter(tracks, query), true)
 		if err != nil {
 			return failed(err)
 		}
@@ -782,7 +782,7 @@ func playYouTube(query, mode string) string {
 		} else {
 			logf("youtube similar: %v", err)
 		}
-		if _, err := svc.Player.Start(spokenTitle(song)+" y parecidas", queue, false); err != nil {
+		if _, err := startMusic(spokenTitle(song)+" y parecidas", queue, false); err != nil {
 			return failed(err)
 		}
 		return fmt.Sprintf("Poniendo %s, y después canciones parecidas.", withArtist(song))
