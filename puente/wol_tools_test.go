@@ -29,7 +29,7 @@ func TestReadWatchtowerThisAndNextWeek(t *testing.T) {
 		t.Fatalf("reply %q", got)
 	}
 	waitFor(t, func() bool { return strings.Contains(spokenAll(v), Speakable("¿Repaso dos?")) })
-	if !strings.HasPrefix(spokenAll(v), Speakable("Estudio de La Atalaya. Un artículo de prueba.")) {
+	if !strings.HasPrefix(spokenAll(v), Speakable("El siguiente artículo se estudiará durante la semana del 1 al 7 de diciembre. Un artículo de prueba.")) {
 		t.Fatalf("reader must start at the intro: %q", spokenAll(v))
 	}
 	if got := Exec(&fakeAPI{}, "read_watchtower", `{"week":"siguiente"}`); got != "Voy a leer el estudio de La Atalaya de la próxima semana: Un artículo de prueba." {

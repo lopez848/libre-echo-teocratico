@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html"
 	"regexp"
 	"strconv"
 	"strings"
@@ -23,10 +24,15 @@ type ReadPiece struct {
 // BibleRef is a chapter and verse range.
 type BibleRef struct {
 	Book, Chapter, From, To int
+	Notes                   bool // "lee ... y la nota": read the verse footnote too
 }
 
+// leeMark stands where a "lee" citation was cut out of a paragraph; the
+// verse is read after that sentence.
+const leeMark = "⟦lee⟧"
+
 var (
-	reLee     = regexp.MustCompile(`(?s)<strong>\s*\(?\s*lee\s*</strong>\s*((?:<a[^>]*class="b"[^>]*>.*?</a>(?:\s*(?:,|;|\s+y)\s*)?)+)`)
+	reLee     = regexp.MustCompile(`(?s)<strong>\s*\(?\s*lee\s*</strong>\s*((?:<a[^>]*class="b"[^>]*>.*?</a>(?:\s*(?:,|;|\s+y)\s*)?)+)((?:\s*<strong>[^<]*</strong>)?)`)
 	reLeeLink = regexp.MustCompile(`(?s)<a[^>]*class="b"[^>]*>(.*?)</a>`)
 	reRefText = regexp.MustCompile(`^(.+?)\s+(\d+):(\d+)(?:\s*[-–]\s*(\d+)|((?:,\s*\d+)+))?$`)
 )
@@ -58,7 +64,7 @@ func parseRef(text string) (BibleRef, bool) {
 		nums := numsOf(m[5])
 		to = nums[len(nums)-1]
 	}
-	return BibleRef{book, ch, from, to}, true
+	return BibleRef{Book: book, Chapter: ch, From: from, To: to}, true
 }
 
 var (
@@ -85,13 +91,14 @@ func trimCitations(s string) string {
 		quoted := strings.ContainsAny(sentence, "”»") || strings.Count(sentence, "\"") >= 2
 		var keep []string
 		cites := false
+		leeHere := 0
 		for _, part := range strings.Split(inner, ";") {
 			p := strings.TrimSpace(part)
 			lp := strings.ToLower(p)
 			switch {
 			case strings.HasPrefix(lp, "lee "):
 				cites = true
-				keep = append(keep, p)
+				leeHere++
 			case strings.HasPrefix(lp, "mira también"), strings.HasPrefix(lp, "vea también"), strings.HasPrefix(lp, "ve también"):
 				cites = true
 			case reCiteRef.MatchString(p):
@@ -110,6 +117,7 @@ func trimCitations(s string) string {
 		case len(keep) > 0:
 			b.WriteString(s[start:m[2]-1] + "(" + strings.Join(keep, "; ") + ")")
 		}
+		b.WriteString(strings.Repeat(leeMark, leeHere))
 		last = end
 	}
 	b.WriteString(s[last:])
@@ -120,8 +128,10 @@ func trimCitations(s string) string {
 func leeRefs(raw string) []BibleRef {
 	var out []BibleRef
 	for _, m := range reLee.FindAllStringSubmatch(raw, -1) {
+		notes := strings.Contains(fold(cleanHTML(m[2])), "nota")
 		for _, l := range reLeeLink.FindAllStringSubmatch(m[1], -1) {
 			if r, ok := parseRef(cleanHTML(l[1])); ok {
+				r.Notes = notes
 				out = append(out, r)
 			}
 		}
@@ -280,8 +290,9 @@ func unshout(s string) string {
 			continue
 		}
 		lw := strings.ToLower(w)
-		if _, ok := bibleBooks[capitalize(lw)]; ok { // "HEB." -> "Heb."
-			words[i] = capitalize(lw)
+		core := strings.TrimLeft(lw, "(¿¡“\"«")
+		if _, ok := bibleBooks[capitalize(core)]; ok { // "(HEB." -> "(Heb."
+			words[i] = lw[:len(lw)-len(core)] + capitalize(core)
 			continue
 		}
 		if p, ok := properNouns[fold(strings.Trim(lw, ".,;:¿?¡!"))]; ok {
@@ -364,13 +375,86 @@ func paraLabel(nums []int) string {
 	case 0:
 		return ""
 	case 1:
-		return fmt.Sprintf("Párrafo %d.", nums[0])
+		return fmt.Sprintf("Párrafo %d. Pregunta:", nums[0])
 	}
 	parts := make([]string, len(nums))
 	for i, n := range nums {
 		parts[i] = strconv.Itoa(n)
 	}
-	return "Párrafos " + strings.Join(parts[:len(parts)-1], ", ") + " y " + parts[len(parts)-1] + "."
+	return "Párrafos " + strings.Join(parts[:len(parts)-1], ", ") + " y " + parts[len(parts)-1] + ". Pregunta:"
+}
+
+var (
+	reSong     = regexp.MustCompile(`(?i)^canción (\d+)\s+(.+)$`)
+	reWeek1    = regexp.MustCompile(`(?i)^(\d+)-(\d+) de (\p{L}+)`)
+	reWeek2    = regexp.MustCompile(`(?i)^(\d+) de (\p{L}+)\s*-\s*(\d+) de (\p{L}+)`)
+	reAlt      = regexp.MustCompile(`alt="([^"]*)"`)
+	reFigure   = regexp.MustCompile(`(?s)<figure\b.*?</figure>`)
+	reMiraPara = regexp.MustCompile(`\s*\((?:mira|vea|ve) (?:el párrafo|los párrafos) (\d+)[^)]*\)`)
+)
+
+// weekPhrase turns "23-29 DE NOVIEMBRE DE 2026" into "del 23 al 29 de noviembre".
+func weekPhrase(s string) string {
+	if m := reWeek2.FindStringSubmatch(s); m != nil {
+		return fmt.Sprintf("del %s de %s al %s de %s", m[1], strings.ToLower(m[2]), m[3], strings.ToLower(m[4]))
+	}
+	if m := reWeek1.FindStringSubmatch(s); m != nil {
+		return fmt.Sprintf("del %s al %s de %s", m[1], m[2], strings.ToLower(m[3]))
+	}
+	return ""
+}
+
+var articleWords = map[string]bool{"un": true, "una": true, "unos": true, "unas": true, "el": true, "la": true, "los": true, "las": true, "dos": true, "tres": true, "varios": true, "varias": true}
+
+// figurePiece describes a picture the way the article audio does: its
+// description, then its caption. It belongs to the paragraph the caption
+// points at, or to the last question's paragraph.
+func figurePiece(inner string, qNums []int) (ReadPiece, bool) {
+	alt := ""
+	if m := reAlt.FindStringSubmatch(inner); m != nil {
+		alt = stripHTML(m[1])
+	}
+	caption := ""
+	if m := regexp.MustCompile(`(?s)<figcaption[^>]*>(.*?)</figcaption>`).FindStringSubmatch(inner); m != nil {
+		caption = cleanHTML(m[1])
+	}
+	if alt == "" && caption == "" {
+		return ReadPiece{}, false
+	}
+	para := 0
+	if len(qNums) > 0 {
+		para = qNums[0]
+	}
+	if m := reMiraPara.FindStringSubmatch(caption); m != nil {
+		para, _ = strconv.Atoi(m[1])
+		caption = strings.TrimSpace(reMiraPara.ReplaceAllString(caption, ""))
+	}
+	var parts []string
+	if alt != "" {
+		if rest, ok := strings.CutPrefix(alt, "Serie de imágenes:"); ok {
+			parts = append(parts, "Aquí se muestra una serie de imágenes: "+strings.TrimSpace(rest))
+		} else {
+			first, _, _ := strings.Cut(alt, " ")
+			if articleWords[strings.ToLower(first)] {
+				alt = strings.ToLower(alt[:len(first)]) + alt[len(first):]
+				parts = append(parts, "En la imagen para este párrafo se ve que "+alt)
+			} else {
+				parts = append(parts, "En la imagen para este párrafo se ve: "+alt)
+			}
+		}
+	}
+	if caption != "" {
+		parts = append(parts, "El comentario dice: "+caption)
+	}
+	text := ""
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if !strings.HasSuffix(p, ".") {
+			p += "."
+		}
+		text = strings.TrimSpace(text + " " + p)
+	}
+	return ReadPiece{Para: para, Text: spoken(text), Pause: true}, true
 }
 
 func articleBody(page string) string {
@@ -388,16 +472,35 @@ func articleBody(page string) string {
 // and the closing review questions. Picture captions are skipped.
 func ParseStudyArticle(page string) (Reading, error) {
 	var r Reading
-	var theme, sub string
+	var theme, sub, week, song, endSong, topic string
+	wantTopic := false
 	var qNums []int
 	var question string
 	pendingFirst := false
 	review := false
 	var reviewQs []string
-	for _, m := range reElem.FindAllStringSubmatch(articleBody(page), -1) {
+	// Pull figures out first: their captions hold <p> elements that would
+	// end a figure match early.
+	var figures []string
+	body := reFigure.ReplaceAllStringFunc(articleBody(page), func(f string) string {
+		figures = append(figures, f)
+		return fmt.Sprintf(`<figure data-i="%d"></figure>`, len(figures)-1)
+	})
+	for _, m := range reElem.FindAllStringSubmatch(body, -1) {
 		tag, class, inner := m[1], elemClass(m[2]), m[3]
+		if tag == "figure" {
+			var idx int
+			fmt.Sscanf(m[2], ` data-i="%d"`, &idx)
+			if idx < 0 || idx >= len(figures) {
+				continue
+			}
+			if img, ok := figurePiece(figures[idx], qNums); ok {
+				r.Pieces = append(r.Pieces, img)
+			}
+			continue
+		}
 		text := cleanHTML(inner)
-		if text == "" || tag == "figure" {
+		if text == "" {
 			continue
 		}
 		switch {
@@ -405,7 +508,23 @@ func ParseStudyArticle(page string) (Reading, error) {
 			r.Title = text
 		case strings.Contains(class, "themeScrp"):
 			theme = text
-		case strings.Contains(class, "pubRefs"), strings.Contains(class, "contextTtl"):
+		case strings.Contains(class, "contextTtl"):
+			week = weekPhrase(text)
+		case strings.Contains(class, "pubRefs"):
+			switch {
+			case reSong.MatchString(text):
+				sm := reSong.FindStringSubmatch(text)
+				line := "Canción " + sm[1] + ": " + sm[2] + "."
+				if len(r.Pieces) == 0 {
+					song = line
+				} else {
+					endSong = line
+				}
+			case strings.EqualFold(text, "TEMA"):
+				wantTopic = true
+			case wantTopic:
+				topic, wantTopic = text, false
+			}
 		case tag == "h2" && strings.Contains(fold(text), "que responderias"):
 			review = true
 		case tag == "h2":
@@ -446,14 +565,33 @@ func ParseStudyArticle(page string) (Reading, error) {
 	if r.Title == "" || len(r.Pieces) == 0 {
 		return r, errors.New("study article: no paragraphs found")
 	}
-	intro := "Estudio de La Atalaya. " + r.Title + "."
+	intro := ""
+	if week != "" {
+		intro = "El siguiente artículo se estudiará durante la semana " + week + ". "
+	}
+	intro += r.Title + "."
 	if theme != "" {
 		intro += " Texto temático: " + spoken(theme)
 	}
-	r.Pieces = append([]ReadPiece{{Text: intro}}, r.Pieces...)
-	if len(reviewQs) > 0 {
-		r.Pieces = append(r.Pieces, ReadPiece{Text: "¿Qué responderías? " + strings.Join(reviewQs, " ")})
+	if song != "" {
+		intro += " " + song
 	}
+	if topic != "" {
+		t := strings.TrimSpace(topic)
+		if !strings.HasSuffix(t, ".") && !strings.HasSuffix(t, "?") {
+			t += "."
+		}
+		intro += " Tema: " + t
+	}
+	r.Pieces = append([]ReadPiece{{Text: intro}}, r.Pieces...)
+	closing := ""
+	if len(reviewQs) > 0 {
+		closing = "¿Qué responderías? " + strings.Join(reviewQs, " ")
+	}
+	if endSong != "" {
+		closing = strings.TrimSpace(closing + " " + endSong)
+	}
+	r.Pieces = append(r.Pieces, ReadPiece{Text: strings.TrimSpace(closing + " Fin del artículo.")})
 	return r, nil
 }
 
@@ -618,8 +756,8 @@ func (j *JW) Watchtower(ctx context.Context, t time.Time) (Reading, error) {
 	if err != nil {
 		return r, err
 	}
-	// Texts marked "lee" are read in the meeting: read each one where the
-	// paragraph cites it, after a short pause, then go on with the paragraph.
+	// Texts marked "lee" are read in the meeting, like the article audio
+	// does: after the sentence that cites them, "<ref> dice:" and the verse.
 	var out []ReadPiece
 	for _, p := range r.Pieces {
 		if len(p.Reads) == 0 {
@@ -629,29 +767,30 @@ func (j *JW) Watchtower(ctx context.Context, t time.Time) (Reading, error) {
 		rest := p.Text
 		first := true
 		for _, ref := range p.Reads {
-			b, err := j.Bible(ctx, ref.Book, ref.Chapter, ref.From, ref.To)
-			if err != nil {
-				logf("wol lee text %+v: %v", ref, err)
-				continue
-			}
-			before, after := splitAtCitation(rest, b.Title)
+			before, after := splitAtMark(rest)
 			if before != "" {
 				out = append(out, ReadPiece{Para: p.Para, Text: before, Pause: !first})
 			}
 			first = false
-			out = append(out, ReadPiece{Para: p.Para, Text: "Leamos " + b.Title + ".", Pause: true})
+			rest = after
+			b, err := j.BibleRef(ctx, ref)
+			if err != nil {
+				logf("wol lee text %+v: %v", ref, err)
+				continue
+			}
+			lead := b.Title + ", dice:"
+			if ref.Notes {
+				lead = b.Title + ", y su nota dicen:"
+			}
 			for k, bp := range b.Pieces {
 				t := bp.Text
 				if k == 0 {
-					t = strings.TrimSpace(strings.TrimPrefix(t, b.Title+"."))
+					t = lead + " " + strings.TrimSpace(strings.TrimPrefix(t, b.Title+"."))
 				}
-				if t != "" {
-					out = append(out, ReadPiece{Para: p.Para, Text: t})
-				}
+				out = append(out, ReadPiece{Para: p.Para, Text: t, Pause: k == 0})
 			}
-			rest = after
 		}
-		if rest != "" {
+		if rest = strings.TrimSpace(strings.ReplaceAll(rest, leeMark, "")); rest != "" {
 			out = append(out, ReadPiece{Para: p.Para, Text: rest, Pause: !first})
 		}
 	}
@@ -659,22 +798,22 @@ func (j *JW) Watchtower(ctx context.Context, t time.Time) (Reading, error) {
 	return r, nil
 }
 
-// splitAtCitation cuts a paragraph after the sentence that says "lee <ref>"
-// (ref already in spoken form). Without that mention the whole text comes
-// first and the Bible text follows it.
-func splitAtCitation(text, ref string) (string, string) {
-	i := strings.Index(text, "lee "+ref)
+// splitAtMark cuts a paragraph after the sentence holding the first lee
+// mark, dropping the mark. Without a mark the whole text comes first.
+func splitAtMark(text string) (string, string) {
+	i := strings.Index(text, leeMark)
 	if i < 0 {
-		return text, ""
+		return strings.TrimSpace(text), ""
 	}
-	rest := text[i:]
+	head := text[:i]
+	rest := text[i+len(leeMark):]
 	end := len(rest)
 	for _, sep := range []string{". ", "? ", "! "} {
 		if k := strings.Index(rest, sep); k >= 0 && k+1 < end {
 			end = k + 1
 		}
 	}
-	return strings.TrimSpace(text[:i] + rest[:end]), strings.TrimSpace(rest[end:])
+	return strings.TrimSpace(head + rest[:end]), strings.TrimSpace(rest[end:])
 }
 
 // Workbook returns the "Vida y Ministerio" week that contains t.
@@ -693,6 +832,55 @@ func (j *JW) Bible(ctx context.Context, book, chapter, from, to int) (Reading, e
 		return Reading{}, err
 	}
 	return ParseBibleChapter(string(page), book, chapter, from, to)
+}
+
+var reFnLink = regexp.MustCompile(`<a[^>]*class="fn(?: [^"]*)?"[^>]*href="([^"]+)"[^>]*>\*</a>`)
+
+// BibleRef reads a reference; with Notes it uses the regular edition, whose
+// footnotes ("O “libertad para hablar”") are read where they are marked.
+func (j *JW) BibleRef(ctx context.Context, ref BibleRef) (Reading, error) {
+	if !ref.Notes {
+		return j.Bible(ctx, ref.Book, ref.Chapter, ref.From, ref.To)
+	}
+	page, err := j.get(ctx, fmt.Sprintf("%s/es/wol/b/r4/lp-s/nwt/%d/%d", j.WOLBase, ref.Book, ref.Chapter))
+	if err != nil {
+		return Reading{}, err
+	}
+	re := regexp.MustCompile(fmt.Sprintf(`(?s)<span id="v%d-%d-(\d+)-\d+" class="v">.*?</span>`, ref.Book, ref.Chapter))
+	s := string(page)
+	notes := map[string]string{}
+	for _, m := range re.FindAllStringSubmatch(s, -1) {
+		v, _ := strconv.Atoi(m[1])
+		if v < ref.From || v > ref.To {
+			continue
+		}
+		for _, l := range reFnLink.FindAllStringSubmatch(m[0], -1) {
+			if _, done := notes[l[0]]; done {
+				continue
+			}
+			fn, err := j.get(ctx, j.WOLBase+l[1])
+			if err != nil {
+				logf("wol footnote %s: %v", l[1], err)
+				continue
+			}
+			body := articleBody(string(fn))
+			if k := strings.Index(body, "<h1"); k >= 0 {
+				if e := strings.Index(body[k:], "</h1>"); e >= 0 {
+					body = body[k+e+5:]
+				}
+			}
+			t := strings.TrimSpace(stripHTML(body))
+			if t != "" {
+				t = strings.TrimSuffix(t, ".")
+				r := []rune(t)
+				notes[l[0]] = " (" + strings.ToLower(string(r[:1])) + string(r[1:]) + ")"
+			}
+		}
+	}
+	for link, text := range notes {
+		s = strings.ReplaceAll(s, link, html.EscapeString(text))
+	}
+	return ParseBibleChapter(s, ref.Book, ref.Chapter, ref.From, ref.To)
 }
 
 // WeeklyBibleReading reads the chapters of the week's Bible reading.

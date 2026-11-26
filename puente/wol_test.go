@@ -26,12 +26,12 @@ const wolStudyPage = `<html><article id="article"><div class="scalableui">
 <p data-pid="7">ESTE es el primer párrafo, es “una frase citada” (<a class="b" href="/bc/1">1 Juan 2:1</a>). Y una alusión (<a class="b" href="/bc/2">Sal. 86:5</a>).<a class="fn" href="/fn/1">*</a></p>
 <p class="qu" data-pid="41">2. Según <a href="/es/wol/bc/x" class="b">Hebreos 4:16</a>, ¿segunda pregunta? (Mira también la imagen).</p>
 <p data-pid="8">2 Segundo párrafo con una cita (<a href="/es/wol/bc/y" class="b">1 Juan 4:8</a>) y otra (Heb. 5:1).</p>
-<figure><figcaption><p data-pid="78">Pie de una imagen que no se lee.</p></figcaption></figure>
+<figure><img src="/x" alt="Un hombre cruza un puente." width="1" height="1" /><figcaption class="figcaption"><p data-pid="78">Pie de una imagen (mira el párrafo 2).</p></figcaption></figure>
 <p data-pid="79">Otro pie de imagen sin número.</p>
 <h2 data-pid="9">UN SUBTÍTULO</h2>
 <p class="qu" data-pid="42">3, 4. ¿Pregunta doble?</p>
 <p data-pid="10">3 Tercer párrafo (<strong>lee</strong> <a href="/es/wol/bc/r" class="b"><strong>Hebreos 7:25</strong></a>). Sigue el párrafo tres.</p>
-<p data-pid="11">4 Cuarto párrafo <strong>(lee</strong> <a href="/es/wol/bc/s" class="b"><strong>Hebreos 4:15</strong></a><strong>).</strong></p>
+<p data-pid="11">4 Cuarto párrafo <strong>(lee</strong> <a href="/es/wol/bc/s" class="b"><strong>Hebreos 4:15</strong></a> <strong>y la nota).</strong></p>
 <h2>¿QUÉ RESPONDERÍAS?</h2><ul><li><p>¿Repaso uno? Respuesta</p></li><li><p>¿Repaso dos? Respuesta</p></li></ul>
 <p class="pubRefs" data-pid="37">CANCIÓN 2 Otra canción</p>
 </div></article></html>`
@@ -58,7 +58,7 @@ func wolChapter(book, ch, verses int) string {
 		if v == 1 {
 			num = fmt.Sprintf(`<a class="cl vx vp" href="/x"><strong>%d</strong> </a>`, ch)
 		}
-		fmt.Fprintf(&b, `<p class="sl"><span id="v%d-%d-%d-1" class="v">%sVersículo %d primera línea,<a class="fn pr" href="/fn">*</a></span></p>`, book, ch, v, num, v)
+		fmt.Fprintf(&b, `<p class="sl"><span id="v%d-%d-%d-1" class="v">%sVersículo %d primera línea<a class="fn pr" href="/es/wol/fn/r4/lp-s/9/%d">*</a>,</span></p>`, book, ch, v, num, v, v)
 		fmt.Fprintf(&b, `<p class="sz"><span id="v%d-%d-%d-2" class="v">y segunda línea del versículo %d.<a class="b" href="/bc">+</a></span></p>`, book, ch, v, v)
 	}
 	b.WriteString(`</article></html>`)
@@ -77,35 +77,38 @@ func TestParseStudyArticle(t *testing.T) {
 	for _, p := range r.Pieces {
 		paras = append(paras, p.Para)
 	}
-	if fmt.Sprint(paras) != "[0 1 2 3 4 0]" {
+	if fmt.Sprint(paras) != "[0 1 2 2 3 4 0]" {
 		t.Fatalf("paragraph numbers %v", paras)
 	}
-	head := r.Pieces[0].Text
-	if !strings.Contains(head, "Un artículo de prueba") || !strings.Contains(head, "Texto temático de prueba") || !strings.Contains(head, "Salmo 23, versículo 1") {
+	if head := r.Pieces[0].Text; head != "El siguiente artículo se estudiará durante la semana del 1 al 7 de diciembre. Un artículo de prueba. Texto temático: “Texto temático de prueba” (Salmo 23, versículo 1). Canción 1: Una canción. Tema: Lo que vamos a aprender." {
 		t.Fatalf("intro %q", head)
 	}
-	if p := r.Pieces[1].Text; p != "Párrafo 1. ¿Primera pregunta? Este es el primer párrafo, es “una frase citada” (Primera de Juan 2, versículo 1). Y una alusión." {
+	if p := r.Pieces[1].Text; p != "Párrafo 1. Pregunta: ¿Primera pregunta? Este es el primer párrafo, es “una frase citada” (Primera de Juan 2, versículo 1). Y una alusión." {
 		t.Fatalf("paragraph 1 %q", p)
 	}
-	if p := r.Pieces[2].Text; !strings.HasPrefix(p, "Párrafo 2. Según Hebreos 4, versículo 16, ¿segunda pregunta?") || !strings.HasSuffix(p, "Segundo párrafo con una cita y otra.") || strings.Contains(p, "imagen") || strings.Contains(p, "Pie de") {
+	if p := r.Pieces[2].Text; !strings.HasPrefix(p, "Párrafo 2. Pregunta: Según Hebreos 4, versículo 16, ¿segunda pregunta?") || !strings.HasSuffix(p, "Segundo párrafo con una cita y otra.") || strings.Contains(p, "imagen") || strings.Contains(p, "Pie de") {
 		t.Fatalf("paragraph 2 must drop captions and image notes: %q", p)
 	}
-	if p := r.Pieces[3].Text; p != "Un subtítulo. Párrafos 3 y 4. ¿Pregunta doble? Tercer párrafo (lee Hebreos 7, versículo 25). Sigue el párrafo tres." {
+	if img := r.Pieces[3]; img.Para != 2 || !img.Pause || img.Text != "En la imagen para este párrafo se ve que un hombre cruza un puente. El comentario dice: Pie de una imagen." {
+		t.Fatalf("image piece %+v", img)
+	}
+	r.Pieces = append(r.Pieces[:3], r.Pieces[4:]...) // drop the image to keep the indexes below
+	if p := r.Pieces[3].Text; p != "Un subtítulo. Párrafos 3 y 4. Pregunta: ¿Pregunta doble? Tercer párrafo"+leeMark+". Sigue el párrafo tres." {
 		t.Fatalf("paragraph 3 %q", p)
 	}
-	if got := fmt.Sprint(r.Pieces[3].Reads); got != "[{58 7 25 25}]" {
+	if got := fmt.Sprint(r.Pieces[3].Reads); got != "[{58 7 25 25 false}]" {
 		t.Fatalf("the bold 'lee' text must be recorded: %s", got)
 	}
 	if len(r.Pieces[2].Reads) != 0 {
 		t.Fatalf("plain citations are not 'lee' texts: %v", r.Pieces[2].Reads)
 	}
-	if got := fmt.Sprint(r.Pieces[4].Reads); got != "[{58 4 15 15}]" {
+	if got := fmt.Sprint(r.Pieces[4].Reads); got != "[{58 4 15 15 true}]" {
 		t.Fatalf("'(lee' inside the bold text must be recorded too: %s", got)
 	}
-	if p := r.Pieces[4].Text; p != "Cuarto párrafo (lee Hebreos 4, versículo 15)." {
+	if p := r.Pieces[4].Text; p != "Cuarto párrafo"+leeMark+"." {
 		t.Fatalf("paragraph 4 %q", p)
 	}
-	if p := r.Pieces[5].Text; p != "¿Qué responderías? ¿Repaso uno? ¿Repaso dos?" {
+	if p := r.Pieces[5].Text; p != "¿Qué responderías? ¿Repaso uno? ¿Repaso dos? Canción 2: Otra canción. Fin del artículo." {
 		t.Fatalf("review %q", p)
 	}
 }
@@ -210,9 +213,12 @@ func fakeWOL(t *testing.T) (*JW, *[]string) {
 			w.Write([]byte(wolWorkbookPage))
 		case r.URL.Path == "/es/wol/d/r4/lp-s/222":
 			w.Write([]byte(wolStudyPage))
-		case strings.HasPrefix(r.URL.Path, "/es/wol/b/r4/lp-s/nwtsty/"):
+		case strings.HasPrefix(r.URL.Path, "/es/wol/fn/r4/lp-s/9/"):
+			w.Write([]byte(`<html><article id="article"><h1>Nota</h1><div class="footnoteResult"><div class="groupFootnote"><div class="fn-ref"><p data-pid="1">O “una nota de prueba”.</p></div></div></div></article></html>`))
+		case strings.HasPrefix(r.URL.Path, "/es/wol/b/r4/lp-s/nwtsty/"), strings.HasPrefix(r.URL.Path, "/es/wol/b/r4/lp-s/nwt/"):
 			var b, c int
-			fmt.Sscanf(strings.TrimPrefix(r.URL.Path, "/es/wol/b/r4/lp-s/nwtsty/"), "%d/%d", &b, &c)
+			rest := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/es/wol/b/r4/lp-s/nwtsty/"), "/es/wol/b/r4/lp-s/nwt/")
+			fmt.Sscanf(rest, "%d/%d", &b, &c)
 			n := 3
 			if c == 23 {
 				n = 12 // long enough to need the reader
@@ -242,15 +248,16 @@ func TestWOLWeekPagesUseISOWeek(t *testing.T) {
 	// pieces after a pause, then the paragraph goes on.
 	var p3 []string
 	for _, p := range r.Pieces {
-		if p.Para == 3 {
+		if p.Para == 3 || p.Para == 4 {
 			p3 = append(p3, fmt.Sprintf("%v|%s", p.Pause, p.Text))
 		}
 	}
 	want := []string{
-		"false|Un subtítulo. Párrafos 3 y 4. ¿Pregunta doble? Tercer párrafo (lee Hebreos 7, versículo 25).",
-		"true|Leamos Hebreos 7, versículo 25.",
-		"false|Versículo 25 primera línea, y segunda línea del versículo 25.",
+		"false|Un subtítulo. Párrafos 3 y 4. Pregunta: ¿Pregunta doble? Tercer párrafo.",
+		"true|Hebreos 7, versículo 25, dice: Versículo 25 primera línea, y segunda línea del versículo 25.",
 		"true|Sigue el párrafo tres.",
+		"false|Cuarto párrafo.",
+		"true|Hebreos 4, versículo 15, y su nota dicen: Versículo 15 primera línea (o “una nota de prueba”), y segunda línea del versículo 15.",
 	}
 	if strings.Join(p3, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("paragraph 3 pieces:\n%s", strings.Join(p3, "\n"))
@@ -281,15 +288,15 @@ func TestTrimCitationsKeepsOnlyQuotedSources(t *testing.T) {
 		`es “un ayudante que está junto al Padre” (1 Juan 2:1) y que`: `es “un ayudante que está junto al Padre” (1 Juan 2:1) y que`,
 		`“No se inquieten” (Mat. 6:34; Fil. 4:6).`:                    `“No se inquieten” (Mat. 6:34; Fil. 4:6).`,
 		// The quote may come earlier in the same sentence (paragraph 12).
-		`es “un ayudante que está junto al Padre” y que intercede por nosotros cuando hacemos algo malo (1 Juan 2:1; lee Hebreos 7:25).`: `es “un ayudante que está junto al Padre” y que intercede por nosotros cuando hacemos algo malo (1 Juan 2:1; lee Hebreos 7:25).`,
+		`es “un ayudante que está junto al Padre” y que intercede por nosotros cuando hacemos algo malo (1 Juan 2:1; lee Hebreos 7:25).`: "es “un ayudante que está junto al Padre” y que intercede por nosotros cuando hacemos algo malo (1 Juan 2:1)" + leeMark + ".",
 		// A quote in an earlier sentence does not count.
 		`Dijo “algo”. Luego habló de otra cosa (Sal. 86:5).`: `Dijo “algo”. Luego habló de otra cosa.`,
 		// Only an allusion: the citation is not read at all.
 		`escucha lo que Jesús le dice sobre nosotros (Sal. 86:5).`: `escucha lo que Jesús le dice sobre nosotros.`,
 		`El mundo está controlado por Satanás (1 Juan 5:19). Él`:   `El mundo está controlado por Satanás. Él`,
 		// "lee" texts always stay; the rest of the group follows the rule.
-		`habla por nosotros (1 Juan 2:1; lee Hebreos 7:25).`: `habla por nosotros (lee Hebreos 7:25).`,
-		`con él (lee Hebreos 4:16 y la nota).`:               `con él (lee Hebreos 4:16 y la nota).`,
+		`habla por nosotros (1 Juan 2:1; lee Hebreos 7:25).`: "habla por nosotros" + leeMark + ".",
+		`con él (lee Hebreos 4:16 y la nota).`:               "con él" + leeMark + ".",
 		// Picture notes go away with the citations next to them.
 		`¿Qué nos enseña? (Hebreos 7:25; mira también la imagen)`: `¿Qué nos enseña?`,
 		// A citation that is part of the sentence stays.
@@ -301,5 +308,11 @@ func TestTrimCitationsKeepsOnlyQuotedSources(t *testing.T) {
 		if got := trimCitations(in); got != want {
 			t.Errorf("trimCitations(%q)\n got %q\nwant %q", in, got, want)
 		}
+	}
+}
+
+func TestSpokenUppercaseAbbreviationInParens(t *testing.T) {
+	if got := spoken("“Texto temático” (HEB. 5:1)."); got != "“Texto temático” (Hebreos 5, versículo 1)." {
+		t.Fatalf("got %q", got)
 	}
 }
