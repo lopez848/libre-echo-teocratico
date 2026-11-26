@@ -118,6 +118,18 @@ func (y *YouTube) Artist(name string) ([]Track, error) {
 		}
 	}
 	if len(mine) == 0 {
+		// Nobody matches the spoken name: YouTube corrected it, so take the
+		// artist that its results repeat most.
+		if top := mainArtist(hits); top != "" {
+			want = fold(top)
+			for _, h := range hits {
+				if fold(h.Artist) == want {
+					mine = append(mine, h)
+				}
+			}
+		}
+	}
+	if len(mine) == 0 {
 		return nil, fmt.Errorf("no songs found for artist %q", name)
 	}
 	mix, err := y.mix(y.Web, ytWeb, strings.TrimPrefix(mine[0].URL, "yt:"))
@@ -398,6 +410,20 @@ func similarName(want, artist string) bool {
 	if strings.Contains(artist, want) {
 		return true
 	}
+	// Spacing differs: "hector la voy" for "hector lavoe".
+	ws, as := strings.ReplaceAll(want, " ", ""), []rune(strings.ReplaceAll(artist, " ", ""))
+	tol := len([]rune(ws)) / 6
+	if tol < 1 {
+		tol = 1
+	}
+	if n := len([]rune(ws)); n >= 6 && len(as) >= n-1 {
+		for i := 0; i+n-1 <= len(as); i++ {
+			end := min(i+n, len(as))
+			if editDistance(ws, string(as[i:end])) <= tol {
+				return true
+			}
+		}
+	}
 	words := strings.Fields(artist)
 	for _, w := range strings.Fields(want) {
 		allowed := 1
@@ -437,4 +463,24 @@ func editDistance(a, b string) int {
 		prev, cur = cur, prev
 	}
 	return prev[len(rb)]
+}
+
+// mainArtist returns the channel that appears at least twice among search
+// hits and more than any other, or "".
+func mainArtist(hits []Track) string {
+	count := map[string]int{}
+	name := map[string]string{}
+	best, bestN := "", 1
+	for _, h := range hits {
+		k := fold(h.Artist)
+		if k == "" {
+			continue
+		}
+		count[k]++
+		name[k] = h.Artist
+		if count[k] > bestN {
+			best, bestN = k, count[k]
+		}
+	}
+	return name[best]
 }

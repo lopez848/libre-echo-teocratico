@@ -306,10 +306,34 @@ func TestSimilarName(t *testing.T) {
 		{"carlos vives", "carlos bibes"}:              true,
 		{"metallica", "marc anthony"}:                 false,
 		{"fonseca", "romeo santos"}:                   false,
+		{"hector la voy", "hector lavoe"}:             true,
+		{"juan luisguerra", "juan luis guerra"}:       true,
 	}
 	for c, want := range cases {
 		if got := similarName(c[0], c[1]); got != want {
 			t.Errorf("similarName(%q, %q)=%v want %v", c[0], c[1], got, want)
 		}
+	}
+}
+
+const salsaSearch = `{"contents":{"x":[
+ {"videoRenderer":{"videoId":"h1","title":{"runs":[{"text":"El Cantante"}]},"ownerText":{"runs":[{"text":"Héctor Lavoe"}]},"lengthText":{"simpleText":"5:30"}}},
+ {"videoRenderer":{"videoId":"x1","title":{"runs":[{"text":"Una mezcla"}]},"ownerText":{"runs":[{"text":"DJ Mezclas"}]},"lengthText":{"simpleText":"4:00"}}},
+ {"videoRenderer":{"videoId":"h2","title":{"runs":[{"text":"Periódico de Ayer"}]},"ownerText":{"runs":[{"text":"Héctor Lavoe"}]},"lengthText":{"simpleText":"5:10"}}}
+]}}`
+
+const salsaMix = `{"contents":{"twoColumnWatchNextResults":{"playlist":{"playlist":{"contents":[
+ {"playlistPanelVideoRenderer":{"videoId":"h1","title":{"simpleText":"El Cantante"},"shortBylineText":{"runs":[{"text":"Héctor Lavoe"}]},"lengthText":{"simpleText":"5:30"}}},
+ {"playlistPanelVideoRenderer":{"videoId":"h3","title":{"simpleText":"Mi Gente"},"shortBylineText":{"runs":[{"text":"Héctor Lavoe"}]},"lengthText":{"simpleText":"6:00"}}}
+]}}}}}`
+
+// When the spoken name matches nobody, the artist YouTube's own spelling
+// correction returns most is the one meant.
+func TestYouTubeArtistFallsBackToTheMainArtistOfTheResults(t *testing.T) {
+	srv, _ := fakeInnertube(t, map[string]string{"/search": salsaSearch, "/next": salsaMix})
+	y := &YouTube{HTTP: srv.Client(), Web: srv.URL, Music: srv.URL}
+	got, err := y.Artist("el cantante de la salsa")
+	if err != nil || len(got) != 3 || got[0].Artist != "Héctor Lavoe" {
+		t.Fatalf("got %+v %v", got, err)
 	}
 }
