@@ -61,6 +61,61 @@ func parseRef(text string) (BibleRef, bool) {
 	return BibleRef{book, ch, from, to}, true
 }
 
+var (
+	reParen   = regexp.MustCompile(`\s*\(([^()]*)\)`)
+	reCiteRef = regexp.MustCompile(`^(?:[123]\s)?[\p{L}.]+\.?(?:\s[\p{L}]+)*\s\d+:\d+`)
+)
+
+// trimCitations keeps a parenthesized citation only when it names the
+// source of words quoted right before it (“...” (1 Juan 2:1)); citations
+// that only allude to a text (... nosotros (Sal. 86:5).) are dropped.
+// Texts marked "lee" and parentheses that are not citations stay.
+func trimCitations(s string) string {
+	var b strings.Builder
+	last := 0
+	for _, m := range reParen.FindAllStringSubmatchIndex(s, -1) {
+		start, end, inner := m[0], m[1], s[m[2]:m[3]]
+		// Quoted words earlier in the same sentence make it a source.
+		sentence := s[:start]
+		for _, sep := range []string{". ", "? ", "! "} {
+			if k := strings.LastIndex(sentence, sep); k >= 0 {
+				sentence = sentence[k+len(sep):]
+			}
+		}
+		quoted := strings.ContainsAny(sentence, "”»") || strings.Count(sentence, "\"") >= 2
+		var keep []string
+		cites := false
+		for _, part := range strings.Split(inner, ";") {
+			p := strings.TrimSpace(part)
+			lp := strings.ToLower(p)
+			switch {
+			case strings.HasPrefix(lp, "lee "):
+				cites = true
+				keep = append(keep, p)
+			case strings.HasPrefix(lp, "mira también"), strings.HasPrefix(lp, "vea también"), strings.HasPrefix(lp, "ve también"):
+				cites = true
+			case reCiteRef.MatchString(p):
+				cites = true
+				if quoted {
+					keep = append(keep, p)
+				}
+			default:
+				keep = append(keep, p)
+			}
+		}
+		b.WriteString(s[last:start])
+		switch {
+		case !cites:
+			b.WriteString(s[start:end])
+		case len(keep) > 0:
+			b.WriteString(s[start:m[2]-1] + "(" + strings.Join(keep, "; ") + ")")
+		}
+		last = end
+	}
+	b.WriteString(s[last:])
+	return b.String()
+}
+
 // leeRefs returns the texts marked with a bold "lee" in a paragraph.
 func leeRefs(raw string) []BibleRef {
 	var out []BibleRef
@@ -361,7 +416,7 @@ func ParseStudyArticle(page string) (Reading, error) {
 				continue
 			}
 			qNums = numsOf(lead[1])
-			question = reImageNote.ReplaceAllString(strings.TrimSpace(text[len(lead[0]):]), "")
+			question = trimCitations(reImageNote.ReplaceAllString(strings.TrimSpace(text[len(lead[0]):]), ""))
 			pendingFirst = true
 		case tag == "li" && review:
 			reviewQs = append(reviewQs, strings.TrimSpace(strings.TrimSuffix(text, "Respuesta")))
@@ -375,7 +430,7 @@ func ParseStudyArticle(page string) (Reading, error) {
 			} else {
 				continue // a picture caption or box, not a paragraph
 			}
-			body := spoken(text)
+			body := spoken(trimCitations(text))
 			if pendingFirst {
 				head := paraLabel(qNums) + " " + spoken(question)
 				if sub != "" {

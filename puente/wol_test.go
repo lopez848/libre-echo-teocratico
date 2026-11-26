@@ -23,7 +23,7 @@ const wolStudyPage = `<html><article id="article"><div class="scalableui">
 <p class="themeScrp" data-pid="4">“Texto temático de prueba” (<a href="/es/wol/bc/x">Sal. 23:1</a>).</p>
 <p class="pubRefs" data-pid="5">TEMA</p><p class="pubRefs" data-pid="6">Lo que vamos a aprender.</p>
 <p class="qu" data-pid="40">1. ¿Primera pregunta?</p>
-<p data-pid="7">ESTE es el primer párrafo.<a class="fn" href="/fn/1">*</a></p>
+<p data-pid="7">ESTE es el primer párrafo, es “una frase citada” (<a class="b" href="/bc/1">1 Juan 2:1</a>). Y una alusión (<a class="b" href="/bc/2">Sal. 86:5</a>).<a class="fn" href="/fn/1">*</a></p>
 <p class="qu" data-pid="41">2. Según <a href="/es/wol/bc/x" class="b">Hebreos 4:16</a>, ¿segunda pregunta? (Mira también la imagen).</p>
 <p data-pid="8">2 Segundo párrafo con una cita (<a href="/es/wol/bc/y" class="b">1 Juan 4:8</a>) y otra (Heb. 5:1).</p>
 <figure><figcaption><p data-pid="78">Pie de una imagen que no se lee.</p></figcaption></figure>
@@ -84,10 +84,10 @@ func TestParseStudyArticle(t *testing.T) {
 	if !strings.Contains(head, "Un artículo de prueba") || !strings.Contains(head, "Texto temático de prueba") || !strings.Contains(head, "Salmo 23, versículo 1") {
 		t.Fatalf("intro %q", head)
 	}
-	if p := r.Pieces[1].Text; p != "Párrafo 1. ¿Primera pregunta? Este es el primer párrafo." {
+	if p := r.Pieces[1].Text; p != "Párrafo 1. ¿Primera pregunta? Este es el primer párrafo, es “una frase citada” (Primera de Juan 2, versículo 1). Y una alusión." {
 		t.Fatalf("paragraph 1 %q", p)
 	}
-	if p := r.Pieces[2].Text; !strings.HasPrefix(p, "Párrafo 2. Según Hebreos 4, versículo 16, ¿segunda pregunta?") || !strings.Contains(p, "(Primera de Juan 4, versículo 8)") || !strings.Contains(p, "Hebreos 5, versículo 1") || strings.Contains(p, "imagen") || strings.Contains(p, "Pie de") {
+	if p := r.Pieces[2].Text; !strings.HasPrefix(p, "Párrafo 2. Según Hebreos 4, versículo 16, ¿segunda pregunta?") || !strings.HasSuffix(p, "Segundo párrafo con una cita y otra.") || strings.Contains(p, "imagen") || strings.Contains(p, "Pie de") {
 		t.Fatalf("paragraph 2 must drop captions and image notes: %q", p)
 	}
 	if p := r.Pieces[3].Text; p != "Un subtítulo. Párrafos 3 y 4. ¿Pregunta doble? Tercer párrafo (lee Hebreos 7, versículo 25). Sigue el párrafo tres." {
@@ -272,5 +272,34 @@ func TestWOLWeekPagesUseISOWeek(t *testing.T) {
 	}
 	if !strings.HasPrefix(wr.Pieces[0].Text, "Lamentaciones 3.") || wr.Title != "Lamentaciones 3 al 5" {
 		t.Fatalf("weekly reading %q %q", wr.Title, wr.Pieces[0].Text)
+	}
+}
+
+func TestTrimCitationsKeepsOnlyQuotedSources(t *testing.T) {
+	cases := map[string]string{
+		// Words in quotes from the text: the citation says where they come from.
+		`es “un ayudante que está junto al Padre” (1 Juan 2:1) y que`: `es “un ayudante que está junto al Padre” (1 Juan 2:1) y que`,
+		`“No se inquieten” (Mat. 6:34; Fil. 4:6).`:                    `“No se inquieten” (Mat. 6:34; Fil. 4:6).`,
+		// The quote may come earlier in the same sentence (paragraph 12).
+		`es “un ayudante que está junto al Padre” y que intercede por nosotros cuando hacemos algo malo (1 Juan 2:1; lee Hebreos 7:25).`: `es “un ayudante que está junto al Padre” y que intercede por nosotros cuando hacemos algo malo (1 Juan 2:1; lee Hebreos 7:25).`,
+		// A quote in an earlier sentence does not count.
+		`Dijo “algo”. Luego habló de otra cosa (Sal. 86:5).`: `Dijo “algo”. Luego habló de otra cosa.`,
+		// Only an allusion: the citation is not read at all.
+		`escucha lo que Jesús le dice sobre nosotros (Sal. 86:5).`: `escucha lo que Jesús le dice sobre nosotros.`,
+		`El mundo está controlado por Satanás (1 Juan 5:19). Él`:   `El mundo está controlado por Satanás. Él`,
+		// "lee" texts always stay; the rest of the group follows the rule.
+		`habla por nosotros (1 Juan 2:1; lee Hebreos 7:25).`: `habla por nosotros (lee Hebreos 7:25).`,
+		`con él (lee Hebreos 4:16 y la nota).`:               `con él (lee Hebreos 4:16 y la nota).`,
+		// Picture notes go away with the citations next to them.
+		`¿Qué nos enseña? (Hebreos 7:25; mira también la imagen)`: `¿Qué nos enseña?`,
+		// A citation that is part of the sentence stays.
+		`Según Hebreos 4:16, ¿qué otra cosa es posible?`: `Según Hebreos 4:16, ¿qué otra cosa es posible?`,
+		// A parenthesis that is not a citation stays.
+		`con humildad (o sea, sin orgullo) y`: `con humildad (o sea, sin orgullo) y`,
+	}
+	for in, want := range cases {
+		if got := trimCitations(in); got != want {
+			t.Errorf("trimCitations(%q)\n got %q\nwant %q", in, got, want)
+		}
 	}
 }
