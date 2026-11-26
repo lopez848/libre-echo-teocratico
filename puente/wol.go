@@ -298,7 +298,7 @@ func unshout(s string) string {
 		if p, ok := properNouns[fold(strings.Trim(lw, ".,;:¿?¡!"))]; ok {
 			lw = strings.Replace(lw, strings.ToLower(p), p, 1)
 		}
-		if i == 0 {
+		if i == 0 || strings.ContainsAny(words[i-1][len(words[i-1])-1:], ".?!") {
 			lw = capitalize(lw)
 		}
 		words[i] = lw
@@ -409,7 +409,7 @@ var articleWords = map[string]bool{"un": true, "una": true, "unos": true, "unas"
 // figurePiece describes a picture the way the article audio does: its
 // description, then its caption. It belongs to the paragraph the caption
 // points at, or to the last question's paragraph.
-func figurePiece(inner string, qNums []int) (ReadPiece, bool) {
+func figurePiece(inner string, qNums []int, seeing string) (ReadPiece, bool) {
 	alt := ""
 	if m := reAlt.FindStringSubmatch(inner); m != nil {
 		alt = stripHTML(m[1])
@@ -433,13 +433,15 @@ func figurePiece(inner string, qNums []int) (ReadPiece, bool) {
 	if alt != "" {
 		if rest, ok := strings.CutPrefix(alt, "Serie de imágenes:"); ok {
 			parts = append(parts, "Aquí se muestra una serie de imágenes: "+strings.TrimSpace(rest))
+		} else if rest, ok := strings.CutPrefix(alt, "Imagen del video"); ok {
+			parts = append(parts, "Aquí vemos una imagen del video"+rest)
 		} else {
 			first, _, _ := strings.Cut(alt, " ")
 			if articleWords[strings.ToLower(first)] {
 				alt = strings.ToLower(alt[:len(first)]) + alt[len(first):]
-				parts = append(parts, "En la imagen para este párrafo se ve que "+alt)
+				parts = append(parts, seeing+" que "+alt)
 			} else {
-				parts = append(parts, "En la imagen para este párrafo se ve: "+alt)
+				parts = append(parts, seeing+": "+alt)
 			}
 		}
 	}
@@ -494,7 +496,7 @@ func ParseStudyArticle(page string) (Reading, error) {
 			if idx < 0 || idx >= len(figures) {
 				continue
 			}
-			if img, ok := figurePiece(figures[idx], qNums); ok {
+			if img, ok := figurePiece(figures[idx], qNums, "En la imagen para este párrafo se ve"); ok {
 				r.Pieces = append(r.Pieces, img)
 			}
 			continue
@@ -595,49 +597,195 @@ func ParseStudyArticle(page string) (Reading, error) {
 	return r, nil
 }
 
-func workbookText(s string) string {
-	s = reMins.ReplaceAllStringFunc(s, func(m string) string {
-		n := reMins.FindStringSubmatch(m)[1]
-		if n == "1" {
-			return "1 minuto."
-		}
-		return n + " minutos."
-	})
-	s = strings.ReplaceAll(s, "(1 min.)", "1 minuto.")
-	s = reWbPubRef.ReplaceAllString(s, "")
-	for i := 0; i < 3; i++ {
-		s = reEmptyRef.ReplaceAllStringFunc(s, func(m string) string {
-			if strings.HasSuffix(m, ")") && !strings.HasPrefix(m, "(") {
-				return ")"
-			}
-			if strings.HasPrefix(m, "(") && !strings.HasSuffix(m, ")") {
-				return "("
-			}
-			return ""
-		})
+var monthsES = []string{"", "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"}
+
+var (
+	rePubMonthly = regexp.MustCompile(`^(w|g)(\d{2})\.(\d{2}) (\d+(?:-\d+)?)(?: párrs?\. ([\d, -]+))?$`)
+	rePubDated   = regexp.MustCompile(`^(w|g)(\d{2}) (\d{1,2})/(\d{1,2}) (\d+(?:-\d+)?)(?: párrs?\. ([\d, -]+))?$`)
+	rePubTh      = regexp.MustCompile(`^th lección (\d+)$`)
+	rePubLmd     = regexp.MustCompile(`^lmd lección (\d+)(?: punto (\d+))?$`)
+	rePubWcg     = regexp.MustCompile(`^wcg (?:cap|lec)\. (\d+)$`)
+	rePubIt      = regexp.MustCompile(`^it “([^”]+)” párrs?\. ([\d, -]+)$`)
+)
+
+func pubYear(yy string) string {
+	n, _ := strconv.Atoi(yy)
+	if n <= 50 {
+		return strconv.Itoa(2000 + n)
 	}
-	s = strings.ReplaceAll(s, " | ", ". ")
-	s = strings.Join(strings.Fields(strings.ReplaceAll(s, " .", ".")), " ")
-	return spoken(strings.TrimSpace(strings.TrimSuffix(s, "Respuesta")))
+	return strconv.Itoa(1900 + n)
 }
 
-// ParseWorkbook turns a "Vida y Ministerio" week into one piece per part and
-// returns the weekly Bible reading heading.
+func pubMagazine(code string) string {
+	if code == "g" {
+		return "¡Despertad!"
+	}
+	return "La Atalaya"
+}
+
+// pubNums reads "30" as "página 30" and "26-30" as "páginas 26 a 30".
+func pubNums(one, many, s string) string {
+	s = strings.TrimSpace(s)
+	if a, b, ok := strings.Cut(s, "-"); ok {
+		return many + " " + strings.TrimSpace(a) + " a " + strings.TrimSpace(b)
+	}
+	if strings.Contains(s, ",") {
+		parts := strings.Split(strings.ReplaceAll(s, " ", ""), ",")
+		return many + " " + joinES(parts)
+	}
+	return one + " " + s
+}
+
+// speakPubRef reads a publication reference the way the meeting audio does
+// ("w24.01 30 párr. 16" -> "La Atalaya de enero de 2024, página 30, párrafo 16").
+func speakPubRef(s string) (string, bool) {
+	s = strings.TrimSpace(strings.ReplaceAll(s, "\u00a0", " "))
+	out := ""
+	if m := rePubMonthly.FindStringSubmatch(s); m != nil {
+		mo, _ := strconv.Atoi(m[3])
+		if mo < 1 || mo > 12 {
+			return "", false
+		}
+		out = fmt.Sprintf("%s de %s de %s, %s", pubMagazine(m[1]), monthsES[mo], pubYear(m[2]), pubNums("página", "páginas", m[4]))
+		if m[5] != "" {
+			out += ", " + pubNums("párrafo", "párrafos", m[5])
+		}
+		return out, true
+	}
+	if m := rePubDated.FindStringSubmatch(s); m != nil {
+		mo, _ := strconv.Atoi(m[4])
+		if mo < 1 || mo > 12 {
+			return "", false
+		}
+		out = fmt.Sprintf("%s del %s de %s de %s, %s", pubMagazine(m[1]), m[3], monthsES[mo], pubYear(m[2]), pubNums("página", "páginas", m[5]))
+		if m[6] != "" {
+			out += ", " + pubNums("párrafo", "párrafos", m[6])
+		}
+		return out, true
+	}
+	if m := rePubTh.FindStringSubmatch(s); m != nil {
+		return "Analiza el folleto Maestros, lección " + m[1], true
+	}
+	if m := rePubLmd.FindStringSubmatch(s); m != nil {
+		out = "Analiza el folleto Una obra de amor, lección " + m[1]
+		if m[2] != "" {
+			out += ", punto " + m[2]
+		}
+		return out, true
+	}
+	if m := rePubWcg.FindStringSubmatch(s); m != nil {
+		return "Seamos valientes, capítulo " + m[1], true
+	}
+	if m := rePubIt.FindStringSubmatch(s); m != nil {
+		return "Perspicacia, entrada " + m[1] + ", " + pubNums("párrafo", "párrafos", m[2]), true
+	}
+	return "", false
+}
+
+var (
+	reWbMins    = regexp.MustCompile(`\s*\((\d+) mins?\.\)`)
+	reWbLeadRef = regexp.MustCompile(`^((?:[123] )?\p{L}+\.? \d+:\d+(?:-\d+)?)\.\s+`)
+	reWbInline  = regexp.MustCompile(`\b(?:(?:w|g)\d{2}(?:\.\d{2}| \d{1,2}/\d{1,2}) \d+(?:-\d+)?(?: párrs?\. [\d-]+(?:, \d+)*)?|th lección \d+|lmd lección \d+(?: punto \d+)?|wcg (?:cap|lec)\. \d+)`)
+)
+
+// workbookLine reads one workbook line like the meeting audio: minutes
+// spoken, Bible citations in parentheses (and a citation opening a
+// question) read aloud after the sentence (leeMark), publication
+// references spoken in full after them.
+func workbookLine(raw string) (string, []BibleRef) {
+	s := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(raw), "Respuesta"))
+	s = reWbMins.ReplaceAllStringFunc(s, func(m string) string {
+		n := reWbMins.FindStringSubmatch(m)[1]
+		if n == "1" {
+			return ". 1 minuto."
+		}
+		return ". " + n + " minutos."
+	})
+	s = strings.TrimSpace(strings.TrimPrefix(s, ". "))
+	var refs []BibleRef
+	if m := reWbLeadRef.FindStringSubmatch(s); m != nil {
+		if r, ok := parseRef(m[1]); ok {
+			refs = append(refs, r)
+			s = s[len(m[0]):]
+		}
+	}
+	var pubs []string
+	s = reParen.ReplaceAllStringFunc(s, func(m string) string {
+		inner := reParen.FindStringSubmatch(m)[1]
+		var keep []string
+		for _, part := range strings.Split(inner, ";") {
+			p := strings.TrimSpace(part)
+			if sp, ok := speakPubRef(p); ok {
+				pubs = append(pubs, sp)
+				continue
+			}
+			if reCiteRef.MatchString(p) {
+				if r, ok := parseRef(p); ok {
+					refs = append(refs, r)
+					continue
+				}
+			}
+			keep = append(keep, p)
+		}
+		if len(keep) == 0 {
+			return ""
+		}
+		return " (" + strings.Join(keep, "; ") + ")"
+	})
+	s = reWbInline.ReplaceAllStringFunc(s, func(m string) string {
+		if sp, ok := speakPubRef(m); ok {
+			return sp
+		}
+		return m
+	})
+	s = strings.ReplaceAll(s, " | ", ". ")
+	s = strings.Join(strings.Fields(s), " ")
+	s = reDoubleDot.ReplaceAllString(s, "$1")
+	if s != "" && !strings.ContainsAny(s[len(s)-1:], ".?!:") {
+		s += "."
+	}
+	s += strings.Repeat(leeMark, len(refs))
+	if len(pubs) > 0 {
+		s += " " + strings.Join(pubs, ". ") + "."
+	}
+	return spoken(s), refs
+}
+
+// ParseWorkbook turns a "Vida y Ministerio" week into one piece per part,
+// read like the meeting audio, and returns the weekly Bible reading heading.
 func ParseWorkbook(page string) (Reading, string, error) {
 	var r Reading
-	weekly := ""
+	weekly, weeklyLine := "", ""
 	var cur []string
+	var curReads []BibleRef
 	section := ""
 	flush := func() {
 		if len(cur) > 0 {
-			r.Pieces = append(r.Pieces, ReadPiece{Text: strings.Join(cur, " ")})
-			cur = nil
+			r.Pieces = append(r.Pieces, ReadPiece{Text: strings.Join(cur, " "), Reads: curReads})
+			cur, curReads = nil, nil
 		}
 	}
-	for _, m := range reElem.FindAllStringSubmatch(articleBody(page), -1) {
+	var figures []string
+	body := reFigure.ReplaceAllStringFunc(articleBody(page), func(f string) string {
+		figures = append(figures, f)
+		return fmt.Sprintf(`<figure data-i="%d"></figure>`, len(figures)-1)
+	})
+	for _, m := range reElem.FindAllStringSubmatch(body, -1) {
 		tag, inner := m[1], m[3]
+		if tag == "figure" {
+			var idx int
+			fmt.Sscanf(m[2], ` data-i="%d"`, &idx)
+			if idx >= 0 && idx < len(figures) {
+				if img, ok := figurePiece(figures[idx], nil, "En la imagen se ve"); ok {
+					img.Para = 0
+					flush()
+					r.Pieces = append(r.Pieces, img)
+				}
+			}
+			continue
+		}
 		text := cleanHTML(inner)
-		if text == "" || tag == "figure" {
+		if text == "" {
 			continue
 		}
 		switch tag {
@@ -646,25 +794,25 @@ func ParseWorkbook(page string) (Reading, string, error) {
 		case "h2":
 			if b, from, to, ok := ParseWeeklyReading(text); ok && weekly == "" && len(r.Pieces) == 0 && len(cur) == 0 {
 				weekly = text
-				r.Pieces = append(r.Pieces, ReadPiece{Text: "Lectura bíblica de la semana: " + chapterRange(b, from, to) + "."})
+				weeklyLine = " Lectura semanal de la Biblia: " + chapterRange(b, from, to) + "."
 				continue
 			}
 			flush()
 			section = unshout(text) + "."
 		case "h3":
 			flush()
-			t := workbookText(text)
-			if !strings.HasSuffix(t, ".") {
-				t += "."
+			if pm := reLeadNums.FindStringSubmatch(text); pm != nil {
+				text = "Punto " + strings.TrimSuffix(pm[1], ".") + ". " + text[len(pm[0]):]
 			}
+			t, refs := workbookLine(text)
 			if section != "" {
 				t = section + " " + t
 				section = ""
 			}
-			cur = append(cur, t)
+			cur, curReads = append(cur, t), append(curReads, refs...)
 		case "p", "li":
-			if t := workbookText(text); t != "" {
-				cur = append(cur, t)
+			if t, refs := workbookLine(text); t != "" && t != "." {
+				cur, curReads = append(cur, t), append(curReads, refs...)
 			}
 		}
 	}
@@ -672,7 +820,11 @@ func ParseWorkbook(page string) (Reading, string, error) {
 	if r.Title == "" || len(r.Pieces) == 0 {
 		return r, "", errors.New("workbook: no parts found")
 	}
-	r.Pieces = append([]ReadPiece{{Text: "Guía de actividades, semana del " + strings.ToLower(r.Title) + "."}}, r.Pieces...)
+	intro := "Guía de actividades."
+	if w := weekPhrase(r.Title); w != "" {
+		intro = "Semana " + w + "."
+	}
+	r.Pieces = append([]ReadPiece{{Text: intro + weeklyLine}}, r.Pieces...)
 	return r, weekly, nil
 }
 
@@ -756,8 +908,12 @@ func (j *JW) Watchtower(ctx context.Context, t time.Time) (Reading, error) {
 	if err != nil {
 		return r, err
 	}
-	// Texts marked "lee" are read in the meeting, like the article audio
-	// does: after the sentence that cites them, "<ref> dice:" and the verse.
+	return j.resolveReads(ctx, r), nil
+}
+
+// resolveReads replaces each lee mark with the cited verse, as the meeting
+// audio does: after its sentence, "<ref> dice:" and the text, after a pause.
+func (j *JW) resolveReads(ctx context.Context, r Reading) Reading {
 	var out []ReadPiece
 	for _, p := range r.Pieces {
 		if len(p.Reads) == 0 {
@@ -769,13 +925,13 @@ func (j *JW) Watchtower(ctx context.Context, t time.Time) (Reading, error) {
 		for _, ref := range p.Reads {
 			before, after := splitAtMark(rest)
 			if before != "" {
-				out = append(out, ReadPiece{Para: p.Para, Text: before, Pause: !first})
+				out = append(out, ReadPiece{Para: p.Para, Text: before, Pause: !first && p.Para > 0})
 			}
 			first = false
 			rest = after
 			b, err := j.BibleRef(ctx, ref)
 			if err != nil {
-				logf("wol lee text %+v: %v", ref, err)
+				logf("wol cited text %+v: %v", ref, err)
 				continue
 			}
 			lead := b.Title + ", dice:"
@@ -791,11 +947,11 @@ func (j *JW) Watchtower(ctx context.Context, t time.Time) (Reading, error) {
 			}
 		}
 		if rest = strings.TrimSpace(strings.ReplaceAll(rest, leeMark, "")); rest != "" {
-			out = append(out, ReadPiece{Para: p.Para, Text: rest, Pause: !first})
+			out = append(out, ReadPiece{Para: p.Para, Text: rest, Pause: !first && p.Para > 0})
 		}
 	}
 	r.Pieces = out
-	return r, nil
+	return r
 }
 
 // splitAtMark cuts a paragraph after the sentence holding the first lee
@@ -807,6 +963,9 @@ func splitAtMark(text string) (string, string) {
 	}
 	head := text[:i]
 	rest := text[i+len(leeMark):]
+	if h := strings.TrimSpace(head); h == "" || strings.ContainsAny(h[len(h)-1:], ".?!") {
+		return h, strings.TrimSpace(rest) // the mark already sits after a sentence
+	}
 	end := len(rest)
 	for _, sep := range []string{". ", "? ", "! "} {
 		if k := strings.Index(rest, sep); k >= 0 && k+1 < end {
@@ -822,7 +981,11 @@ func (j *JW) Workbook(ctx context.Context, t time.Time) (Reading, string, error)
 	if err != nil {
 		return Reading{}, "", err
 	}
-	return ParseWorkbook(page)
+	r, weekly, err := ParseWorkbook(page)
+	if err != nil {
+		return r, weekly, err
+	}
+	return j.resolveReads(ctx, r), weekly, nil
 }
 
 // Bible reads a chapter, or verses from..to of it (0, 0 = whole chapter).
@@ -885,7 +1048,11 @@ func (j *JW) BibleRef(ctx context.Context, ref BibleRef) (Reading, error) {
 
 // WeeklyBibleReading reads the chapters of the week's Bible reading.
 func (j *JW) WeeklyBibleReading(ctx context.Context, t time.Time) (Reading, error) {
-	_, weekly, err := j.Workbook(ctx, t)
+	page, err := j.weekDoc(ctx, t, "Vida y Ministerio")
+	if err != nil {
+		return Reading{}, err
+	}
+	_, weekly, err := ParseWorkbook(page)
 	if err != nil {
 		return Reading{}, err
 	}

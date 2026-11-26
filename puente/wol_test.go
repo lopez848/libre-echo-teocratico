@@ -42,11 +42,14 @@ const wolWorkbookPage = `<html><article id="article">
 <h3>Canción 1 y oración | Palabras de introducción (1 min.)</h3>
 <h2>TESOROS DE LA BIBLIA</h2>
 <h3>1. Un discurso de prueba</h3>
-<p>(10 mins.)</p><p>Un punto del discurso (Lam 3:22; w24.01 30 párr. 16).</p>
+<p>(10 mins.)</p><p>Un punto del discurso (Lam 3:22; w24.01 30 párr. 16).</p><p>Otro punto (Lam 3:23; Mt 6:34).</p><p>Un tercer punto (Lam 3:24).</p>
 <h3>3. Lectura de la Biblia</h3><p>(4 mins.) Lam 3:19-42 (th lección 12).</p>
 <h2>NUESTRA VIDA CRISTIANA</h2>
+<h3>6. Discurso</h3><p>(5 mins.) w25.12 26-30. Título: Un título de prueba (th lección 16).</p>
 <h3>7. Una parte con preguntas</h3><p>(15 mins.) Análisis con el auditorio.</p>
+<figure><img src="/x" alt="Imagen del video “Un video de prueba”. Una hermana ayuda a su mamá." width="1" height="1" /></figure>
 <ul><li><p><a href="/es/wol/bc/q" class="b">Lam 3:27</a>. ¿Una pregunta del análisis? (w07 1/6 11 párr. 4). Respuesta</p></li></ul><p>Lee <a class="b" href="/bc">Mt 6:34</a>.</p>
+<h3>8. Estudio bíblico de la congregación</h3><p>(30 mins.) <a href="/es/wol/pc/r4/lp-s/1/12/0"><em>wcg</em> cap. 18</a>.</p>
 <h3>Palabras de conclusión (3 mins.) | Canción 2 y oración</h3>
 </article></html>`
 
@@ -121,19 +124,48 @@ func TestParseWorkbook(t *testing.T) {
 	if weekly != "LAMENTACIONES 3-5" || r.Title != "1-7 DE DICIEMBRE" {
 		t.Fatalf("weekly=%q title=%q", weekly, r.Title)
 	}
-	all := ""
+	var got []string
 	for _, p := range r.Pieces {
-		all += p.Text + "\n"
+		got = append(got, fmt.Sprintf("%v|%s", p.Pause, p.Text))
 	}
-	for _, want := range []string{"Lectura bíblica de la semana: Lamentaciones 3 al 5.", "Tesoros de la Biblia.", "1. Un discurso de prueba. 10 minutos. Un punto del discurso", "Lamentaciones 3, versículo 27. ¿Una pregunta del análisis?", "Lee Mateo 6, versículo 34."} {
-		if !strings.Contains(all, want) {
-			t.Errorf("missing %q in:\n%s", want, all)
+	want := []string{
+		"false|Semana del 1 al 7 de diciembre. Lectura semanal de la Biblia: Lamentaciones 3 al 5.",
+		"false|Canción 1 y oración. Palabras de introducción. 1 minuto.",
+		"false|Tesoros de la Biblia. Punto 1. Un discurso de prueba. 10 minutos. Un punto del discurso." + leeMark + " La Atalaya de enero de 2024, página 30, párrafo 16. Otro punto." + leeMark + leeMark + " Un tercer punto." + leeMark,
+		"false|Punto 3. Lectura de la Biblia. 4 minutos. Lamentaciones 3, versículos 19 al 42. Analiza el folleto Maestros, lección 12.",
+		"false|Nuestra vida cristiana. Punto 6. Discurso. 5 minutos. La Atalaya de diciembre de 2025, páginas 26 a 30. Título: Un título de prueba. Analiza el folleto Maestros, lección 16.",
+		"false|Punto 7. Una parte con preguntas. 15 minutos. Análisis con el auditorio.",
+		"true|Aquí vemos una imagen del video “Un video de prueba”. Una hermana ayuda a su mamá.",
+		"false|¿Una pregunta del análisis?" + leeMark + " La Atalaya del 1 de junio de 2007, página 11, párrafo 4. Lee Mateo 6, versículo 34.",
+		"false|Punto 8. Estudio bíblico de la congregación. 30 minutos. Seamos valientes, capítulo 18.",
+		"false|Palabras de conclusión. 3 minutos. Canción 2 y oración.",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("workbook pieces:\n%s", strings.Join(got, "\n"))
+	}
+	if fmt.Sprint(r.Pieces[2].Reads) != "[{25 3 22 22 false} {25 3 23 23 false} {40 6 34 34 false} {25 3 24 24 false}]" || fmt.Sprint(r.Pieces[7].Reads) != "[{25 3 27 27 false}]" {
+		t.Fatalf("citations to read: %v / %v", r.Pieces[2].Reads, r.Pieces[7].Reads)
+	}
+}
+
+func TestSpeakPubRef(t *testing.T) {
+	cases := map[string]string{
+		"w24.01 30 párr. 16":         "La Atalaya de enero de 2024, página 30, párrafo 16",
+		"w21.08 13 párrs. 17-19":     "La Atalaya de agosto de 2021, página 13, párrafos 17 a 19",
+		"w07 1/6 11 párr. 4":         "La Atalaya del 1 de junio de 2007, página 11, párrafo 4",
+		"w25.12 26-30":               "La Atalaya de diciembre de 2025, páginas 26 a 30",
+		"th lección 12":              "Analiza el folleto Maestros, lección 12",
+		"lmd lección 5 punto 4":      "Analiza el folleto Una obra de amor, lección 5, punto 4",
+		"wcg cap. 18":                "Seamos valientes, capítulo 18",
+		"w00 1/8 16-18 párrs. 11-15": "La Atalaya del 1 de agosto de 2000, páginas 16 a 18, párrafos 11 a 15",
+	}
+	for in, want := range cases {
+		if got, ok := speakPubRef(in); !ok || got != want {
+			t.Errorf("speakPubRef(%q)=%q,%v want %q", in, got, ok, want)
 		}
 	}
-	for _, bad := range []string{"w24.01", "párr.", "th lección", "Respuesta", "(;", "()", "?.", "..", " ."} {
-		if strings.Contains(all, bad) {
-			t.Errorf("unexpected %q in:\n%s", bad, all)
-		}
+	if _, ok := speakPubRef("Lam 3:22"); ok {
+		t.Error("a Bible citation is not a publication")
 	}
 }
 
@@ -226,6 +258,12 @@ func fakeWOL(t *testing.T) (*JW, *[]string) {
 			if b == 58 {
 				n = 30 // Hebreos 7:25 for the "lee" text
 			}
+			if b == 25 && c == 3 {
+				n = 30 // Lamentaciones 3:22 and 3:27 in the workbook
+			}
+			if b == 40 && c == 6 {
+				n = 34 // Mateo 6:34 in the workbook
+			}
 			w.Write([]byte(wolChapter(b, c, n)))
 		default:
 			http.NotFound(w, r)
@@ -314,5 +352,38 @@ func TestTrimCitationsKeepsOnlyQuotedSources(t *testing.T) {
 func TestSpokenUppercaseAbbreviationInParens(t *testing.T) {
 	if got := spoken("“Texto temático” (HEB. 5:1)."); got != "“Texto temático” (Hebreos 5, versículo 1)." {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestWorkbookReadsCitedTexts(t *testing.T) {
+	j, _ := fakeWOL(t)
+	loc, _ := time.LoadLocation("America/Chicago")
+	r, _, err := j.Workbook(context.Background(), time.Date(2026, 11, 26, 20, 0, 0, 0, loc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := ""
+	for _, p := range r.Pieces {
+		all += p.Text + "\n"
+	}
+	for _, want := range []string{
+		"Un punto del discurso.\nLamentaciones 3, versículo 22, dice: Versículo 22 primera línea, y segunda línea del versículo 22.\nLa Atalaya de enero de 2024, página 30, párrafo 16. Otro punto.\nLamentaciones 3, versículo 23, dice: Versículo 23 primera línea, y segunda línea del versículo 23.\nMateo 6, versículo 34, dice: Versículo 34 primera línea, y segunda línea del versículo 34.\nUn tercer punto.\nLamentaciones 3, versículo 24, dice:",
+		"¿Una pregunta del análisis?\nLamentaciones 3, versículo 27, dice: Versículo 27 primera línea, y segunda línea del versículo 27.\nLa Atalaya del 1 de junio de 2007",
+	} {
+		if !strings.Contains(all, want) {
+			t.Errorf("missing %q in:\n%s", want, all)
+		}
+	}
+	if strings.Contains(all, leeMark) {
+		t.Errorf("marks must not be spoken:\n%s", all)
+	}
+}
+
+func TestWorkbookLineCasingAndColon(t *testing.T) {
+	if got, _ := workbookLine("(3 mins.) DE CASA EN CASA. Enseña una verdad bíblica."); got != "3 minutos. De casa en casa. Enseña una verdad bíblica." {
+		t.Errorf("casing after a period: %q", got)
+	}
+	if got, _ := workbookLine("Pon el VIDEO de prueba. Luego pregunta:"); got != "Pon el video de prueba. Luego pregunta:" {
+		t.Errorf("colon end: %q", got)
 	}
 }
