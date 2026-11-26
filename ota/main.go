@@ -95,7 +95,8 @@ func pidsOf(name string) []int {
 }
 
 // healthy waits for the restarted program: its health URL must answer, or
-// the process must be running, and still be so 20 s later.
+// the process must be running, and still be so after a settle time. A crash
+// loop fails fast, before the supervisor gives up (10 failures/10 min).
 func healthy(ctx context.Context, s Service) bool {
 	up := func() bool {
 		if s.HealthURL == "" {
@@ -109,14 +110,7 @@ func healthy(ctx context.Context, s Service) bool {
 		resp.Body.Close()
 		return resp.StatusCode == http.StatusOK
 	}
-	time.Sleep(5 * time.Second) // let the supervisor restart it
-	deadline := time.Now().Add(90 * time.Second)
-	for !up() {
-		if time.Now().After(deadline) || ctx.Err() != nil {
-			return false
-		}
-		time.Sleep(2 * time.Second)
-	}
-	time.Sleep(20 * time.Second)
-	return up()
+	time.Sleep(3 * time.Second) // let the supervisor start it
+	return waitHealthy(ctx, healthWait{Up: up, PIDs: func() []int { return pidsOf(s.Name) },
+		Poll: time.Second, Deadline: 60 * time.Second, Settle: 20 * time.Second, MaxPIDs: 3})
 }

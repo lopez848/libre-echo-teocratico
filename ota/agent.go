@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"syscall"
 )
 
 // Service is a program the agent may replace: services/<Name>/<Name>.
@@ -25,6 +26,10 @@ type Service struct {
 type State struct {
 	Installed string   `json:"installed"`
 	Failed    []string `json:"failed,omitempty"`
+	// Pending is the version being swapped in. If the agent finds it set at
+	// start, the device rebooted mid-install: the backups are restored.
+	Pending         string   `json:"pending,omitempty"`
+	PendingServices []string `json:"pending_services,omitempty"`
 }
 
 // Agent checks GitHub Releases and installs signed updates.
@@ -43,6 +48,18 @@ type Agent struct {
 // Check installs the latest release when it is signed, newer than the
 // installed one and not known to fail. It returns what it did.
 func (a *Agent) Check(ctx context.Context) (string, error) {
+	unlock, err := a.lock()
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+	st, err := a.readState()
+	if err != nil {
+		return "", err
+	}
+	if st.Pending != "" {
+		st = a.recover(st)
+	}
 	assets, err := a.latestAssets(ctx)
 	if errors.Is(err, errNoRelease) {
 		return "no release published", nil
@@ -65,16 +82,17 @@ func (a *Agent) Check(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	st := a.loadState()
 	if !newer(m.Version, st.Installed) {
 		return fmt.Sprintf("up to date (%s)", st.Installed), nil
 	}
 	if slices.Contains(st.Failed, m.Version) {
 		return fmt.Sprintf("skipping %s: it failed before", m.Version), nil
 	}
-	if err := a.install(ctx, m); err != nil {
+	if err := a.install(ctx, m, st); err != nil {
 		st.Failed = append(st.Failed, m.Version)
-		a.saveState(st)
+		if serr := a.saveState(st); serr != nil {
+			logf("could not record failed %s: %v", m.Version, serr)
+		}
 		return "", err
 	}
 	st.Installed = m.Version
@@ -143,12 +161,20 @@ func (a *Agent) get(ctx context.Context, url string, max int64) ([]byte, error) 
 
 // install downloads and checks every file first, then swaps them in, keeps
 // backups, restarts and checks health; on failure it restores the backups.
-func (a *Agent) install(ctx context.Context, m *Manifest) error {
+func (a *Agent) install(ctx context.Context, m *Manifest, st State) error {
 	for _, f := range m.Files {
 		if err := a.download(ctx, f); err != nil {
 			a.cleanNew(m)
 			return err
 		}
+	}
+	st.Pending, st.PendingServices = m.Version, nil
+	for _, f := range m.Files {
+		st.PendingServices = append(st.PendingServices, f.Service)
+	}
+	if err := a.saveState(st); err != nil { // nothing swapped yet
+		a.cleanNew(m)
+		return fmt.Errorf("cannot mark install pending: %w", err)
 	}
 	var swapped []File
 	for _, f := range m.Files {
@@ -187,10 +213,32 @@ func (a *Agent) download(ctx context.Context, f File) error {
 		return fmt.Errorf("%s: sha256 does not match the signed manifest", f.Service)
 	}
 	tmp := a.path(f.Service) + ".new"
-	if err := os.WriteFile(tmp, b, 0o755); err != nil {
+	os.Remove(tmp)
+	if err := writeSynced(tmp, b); err != nil {
 		return fmt.Errorf("%s: %w", f.Service, err)
 	}
-	return os.Chmod(tmp, 0o755) // WriteFile keeps the mode of an existing file
+	return nil
+}
+
+// writeSynced writes an executable-mode file and flushes it to disk, so a
+// rename after it never points at unwritten data after a power cut.
+func writeSynced(path string, b []byte) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(b); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o755)
 }
 
 func (a *Agent) rollback(swapped []File) {
@@ -206,6 +254,43 @@ func (a *Agent) rollback(swapped []File) {
 	}
 }
 
+// recover rolls back an install a reboot interrupted and remembers its
+// version as failed.
+func (a *Agent) recover(st State) State {
+	logf("install of %s was interrupted: restoring backups", st.Pending)
+	var files []File
+	for _, svc := range st.PendingServices {
+		if _, ok := a.Services[svc]; ok {
+			if _, err := os.Stat(a.path(svc) + ".ota-bak"); err == nil {
+				files = append(files, File{Service: svc})
+			}
+		}
+	}
+	a.rollback(files)
+	st.Failed = append(st.Failed, st.Pending)
+	st.Pending, st.PendingServices = "", nil
+	if err := a.saveState(st); err != nil {
+		logf("could not save state after recovery: %v", err)
+	}
+	return st
+}
+
+// lock keeps two agents from installing at the same time.
+func (a *Agent) lock() (func(), error) {
+	if err := os.MkdirAll(filepath.Dir(a.StateFile), 0o755); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(a.StateFile+".lock", os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		return nil, errors.New("another check is running")
+	}
+	return func() { syscall.Flock(int(f.Fd()), syscall.LOCK_UN); f.Close() }, nil
+}
+
 func (a *Agent) cleanNew(m *Manifest) {
 	for _, f := range m.Files {
 		os.Remove(a.path(f.Service) + ".new")
@@ -218,11 +303,26 @@ func (a *Agent) path(service string) string {
 }
 
 func (a *Agent) loadState() State {
-	var st State
-	if b, err := os.ReadFile(a.StateFile); err == nil {
-		_ = json.Unmarshal(b, &st)
-	}
+	st, _ := a.readState()
 	return st
+}
+
+// readState returns an empty state only when the file does not exist yet.
+// A damaged file is an error: treating it as empty would allow downgrades
+// and retry versions that already failed.
+func (a *Agent) readState() (State, error) {
+	var st State
+	b, err := os.ReadFile(a.StateFile)
+	if os.IsNotExist(err) {
+		return st, nil
+	}
+	if err != nil {
+		return st, fmt.Errorf("read state: %w", err)
+	}
+	if err := json.Unmarshal(b, &st); err != nil {
+		return State{}, fmt.Errorf("state file %s is damaged (%v); fix or remove it by hand", a.StateFile, err)
+	}
+	return st, nil
 }
 
 func (a *Agent) saveState(st State) error {
@@ -231,7 +331,7 @@ func (a *Agent) saveState(st State) error {
 	}
 	b, _ := json.Marshal(st)
 	tmp := a.StateFile + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+	if err := writeSynced(tmp, b); err != nil {
 		return err
 	}
 	return os.Rename(tmp, a.StateFile)
@@ -248,6 +348,10 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	if err := out.Sync(); err != nil {
 		out.Close()
 		return err
 	}

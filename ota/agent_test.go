@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // fakeGitHub serves the latest-release API and its assets over TLS.
@@ -228,5 +229,101 @@ func TestVersionOrder(t *testing.T) {
 		if got := newer(c.a, c.b); got != c.want {
 			t.Errorf("newer(%q,%q)=%v", c.a, c.b, got)
 		}
+	}
+}
+
+// A reboot between the swap and the state write leaves a pending install:
+// the next check restores the backup and remembers the version as failed,
+// instead of copying the new binary over the good backup (review T5).
+func TestRecoversAnInstallInterruptedByAReboot(t *testing.T) {
+	r := newRig(t)
+	os.WriteFile(r.bin+".ota-bak", []byte("old binary"), 0o755)
+	os.WriteFile(r.bin, []byte("crashing new binary"), 0o755)
+	r.a.saveState(State{Installed: "v0.1.0", Pending: "v1.0.0", PendingServices: []string{"puente"}})
+	r.g.publish(r.key, "v1.0.0", []byte("crashing new binary"), []byte("crashing new binary"))
+	got, err := r.a.Check(context.Background())
+	if err != nil || got != "skipping v1.0.0: it failed before" {
+		t.Fatalf("Check = %q, %v", got, err)
+	}
+	if r.binary(t) != "old binary" {
+		t.Fatal("the interrupted install must be rolled back to the backup")
+	}
+	st := r.a.loadState()
+	if st.Pending != "" || st.Installed != "v0.1.0" || len(st.Failed) != 1 || st.Failed[0] != "v1.0.0" {
+		t.Fatalf("state %+v", st)
+	}
+	if len(r.restarts) != 1 || r.g.fetches != 0 {
+		t.Fatalf("restarts=%v fetches=%d", r.restarts, r.g.fetches)
+	}
+}
+
+// The pending marker is written before the binary is swapped.
+func TestMarksTheInstallPendingBeforeSwapping(t *testing.T) {
+	r := newRig(t)
+	var seen State
+	r.a.Restart = func(string) error { seen = r.a.loadState(); return nil }
+	r.g.publish(r.key, "v1.0.0", []byte("new binary"), []byte("new binary"))
+	if _, err := r.a.Check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if seen.Pending != "v1.0.0" {
+		t.Fatalf("state during restart %+v, want pending v1.0.0", seen)
+	}
+	if st := r.a.loadState(); st.Pending != "" || st.Installed != "v1.0.0" {
+		t.Fatalf("final state %+v", st)
+	}
+}
+
+// A damaged state file must not turn into "nothing installed", which would
+// allow downgrades and retry failed versions (review T5).
+func TestRefusesToInstallWithACorruptStateFile(t *testing.T) {
+	r := newRig(t)
+	os.MkdirAll(filepath.Dir(r.a.StateFile), 0o755)
+	os.WriteFile(r.a.StateFile, []byte(`{"installed":"v2.`), 0o644)
+	r.g.publish(r.key, "v1.0.0", []byte("new binary"), []byte("new binary"))
+	if _, err := r.a.Check(context.Background()); err == nil || !strings.Contains(err.Error(), "state") {
+		t.Fatalf("err = %v", err)
+	}
+	if r.binary(t) != "old binary" || r.g.fetches != 0 {
+		t.Fatal("nothing may be installed while the state is unreadable")
+	}
+}
+
+func TestOnlyOneCheckRunsAtATime(t *testing.T) {
+	r := newRig(t)
+	unlock, err := r.a.lock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	r.g.publish(r.key, "v1.0.0", []byte("new binary"), []byte("new binary"))
+	if _, err := r.a.Check(context.Background()); err == nil || !strings.Contains(err.Error(), "another check") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// A binary that crashes at start makes the supervisor restart it again and
+// again; health must fail fast, before the supervisor gives up after 10
+// failures in 10 minutes, so the rollback still gets restarted (review T5).
+func TestHealthFailsFastOnACrashLoop(t *testing.T) {
+	pid := 100
+	start := time.Now()
+	ok := waitHealthy(context.Background(), healthWait{
+		Up:   func() bool { return false },
+		PIDs: func() []int { pid++; return []int{pid} }, // a new process each poll
+		Poll: time.Millisecond, Deadline: time.Second, Settle: time.Millisecond,
+		MaxPIDs: 3,
+	})
+	if ok || time.Since(start) > 200*time.Millisecond {
+		t.Fatalf("ok=%v after %v, want a fast failure", ok, time.Since(start))
+	}
+	n := 0
+	ok = waitHealthy(context.Background(), healthWait{
+		Up:   func() bool { n++; return n > 2 },
+		PIDs: func() []int { return []int{7} },
+		Poll: time.Millisecond, Deadline: time.Second, Settle: time.Millisecond, MaxPIDs: 3,
+	})
+	if !ok {
+		t.Fatal("a service that comes up and stays up is healthy")
 	}
 }
