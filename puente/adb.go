@@ -259,7 +259,11 @@ func (c *adbConn) handshake(ctx context.Context) error {
 		if m.arg0 != adbAuthToken {
 			return fmt.Errorf("adb: unknown AUTH arg0 %d", m.arg0)
 		}
-		if err := sendMsg(c.conn, mkMsg(cmdAUTH, adbAuthSign, 0, c.key.sign(m.data))); err != nil {
+		sig, err := c.key.sign(m.data)
+		if err != nil {
+			return err
+		}
+		if err := sendMsg(c.conn, mkMsg(cmdAUTH, adbAuthSign, 0, sig)); err != nil {
 			return err
 		}
 		m, err := c.readMsg(ctx)
@@ -358,11 +362,20 @@ func (c *adbConn) shell(ctx context.Context, command string) (string, error) {
 
 func (c *adbConn) Close() error { return c.conn.Close() }
 
-// sign returns the RSA-SHA256 signature adbd asked for with the token.
-func (k *adbKey) sign(token []byte) []byte {
-	h := crypto.SHA256.New()
-	h.Write(token)
-	digest := h.Sum(nil)
-	sig, _ := rsa.SignPKCS1v15(rand.Reader, k.Private, crypto.SHA256, digest)
-	return sig
+// adbTokenSize is the length of the AUTH token adbd sends: a SHA-1 digest,
+// 20 bytes. Measured on the TCL Google TV, and the size adbd's own
+// adb_auth.h declares.
+const adbTokenSize = 20
+
+// sign returns the signature adbd asked for with the token. adbd checks it
+// with RSA_verify(NID_sha1, token, token_size, ...), and OpenSSL with
+// NID_sha1 takes those bytes as an already-computed SHA-1 digest. So the
+// token is signed prehashed: hashing it again produces a signature adbd
+// rejects, which drops every connection into the pairing dialog even for a
+// key the TV already stores.
+func (k *adbKey) sign(token []byte) ([]byte, error) {
+	if len(token) != adbTokenSize {
+		return nil, fmt.Errorf("adb: AUTH token is %d bytes, want %d", len(token), adbTokenSize)
+	}
+	return rsa.SignPKCS1v15(rand.Reader, k.Private, crypto.SHA1, token)
 }

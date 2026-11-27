@@ -52,10 +52,15 @@ T6 [RESULTADOS] suite de tv (tv_test.go): pickHost, flujo abrir/cerrar con
     carga de JSON (ausente desactiva, erróneo reporta).
     [x] Hecho — go test ./puente TODO ok 7.0s (además de toda la suite
     preexistente sin regresiones).
-T7 [S7] Emparejar del hardware real: TV de sala TCL (247) [x HECHO, conectó
-    en directo], Chromecast (233) [x Verificado: 5555 cerrado → fase 2 por
-    Cast], Fire TV [ ] pendiente: no apareció en la red; necesita que esté
-    encendido o su IP (el mismo código ADB funcionará igual).
+T7 [S7] Emparejar del hardware real: TV de sala TCL (247) [x HECHO, aceptado
+    con "Siempre permitir" y verificado desde el Echo, 6 comandos seguidos sin
+    fallas tras el arreglo de la firma (L5)], Chromecast (233) [x Verificado:
+    5555 cerrado → fase 2 por Cast], Fire TV [ ] pendiente: no apareció en la
+    red; necesita que esté encendido o su IP (el mismo código ADB funcionará
+    igual).
+T8 [S2,S6] Firma ADB al contrato real de adbd (SHA-1 prehasheado) — inline.
+    [x] Hecho (L5). RED: "crypto/rsa: verification error". GREEN: suite
+    completa + 6 comandos reales en el TCL, 0 errores.
 
 ## Log
 
@@ -109,3 +114,36 @@ L4 2026-11-27 DESPLIEGUE en el Echo (biscuit, 192.168.1.211):
    Echo presenta una clave nueva (la de esta PC no se copió a propósito).
    Rollback del puente: `cd /data/libreecho/local/services/puente && cp -p
    puente.bak-20261127 puente && kill $(pidof puente)`.
+L5 2026-11-27 DEFECTO REAL encontrado al verificar en hardware, no era el TV:
+   Síntoma: los comandos funcionaban unas veces y otras no ("No alcanzo el TV"),
+   y una pausa de 45 s parecía "arreglarlo".
+   Descartado con medición, no con suposiciones:
+   - El TV estaba en la red y 5555 abierto en cada falla (ping 6.9 ms).
+   - Sonda sin claves (solo CNXN, 15 conexiones seguidas): el TV contestó AUTH
+     las 15 veces, así que adbd NO limita las conexiones seguidas.
+   - El registro nuevo (L4) dio la pista exacta: el saludo llegaba hasta enviar
+     la línea de clave pública y ahí el TV se quedaba callado, o sea que la
+     FIRMA venía siendo rechazada siempre.
+   CAUSA: `sign()` hacía SHA-256 del token y firmaba con DigestInfo de SHA-256.
+   adbd verifica con `RSA_verify(NID_sha1, token, token_size, ...)`, y OpenSSL
+   con NID_sha1 toma esos bytes como un resumen SHA-1 YA calculado. Fuente:
+   adb_auth_host.cpp (`RSA_sign(NID_sha1, token, token_size, ...)`) y
+   daemon/auth.cpp en AOSP. El token real medido en el TCL: 20 bytes, el tamaño
+   de un SHA-1. La T1 del 2026-11-27 anotó "RSA-SHA256" y era incorrecto; la
+   prueba TestADBAuthSignature verificaba nuestra propia firma contra nuestro
+   propio SHA-256, así que el error no se veía.
+   Por qué parecía intermitente: con la firma rechazada, cada comando caía en la
+   ruta de la clave pública, que en Android pasa por el diálogo de la pantalla.
+   Funcionaba solo cuando el sistema aprobaba la clave sin preguntar.
+   ARREGLO (commit siguiente): firmar el token de 20 bytes tal cual
+   (`rsa.SignPKCS1v15(..., crypto.SHA1, token)`), con guardia de tamaño.
+   PRUEBAS: TestADBAuthSignature reescrito al contrato de adbd (RED observado:
+   "crypto/rsa: verification error") y TestADBSignRejectsOddToken nuevo.
+   go test ./... ok puente 7.199s, ok puente/hap. go vet limpio.
+   HARDWARE: desplegado en el Echo; 6 comandos seguidos (volumen arriba,
+   silenciar, inicio, abrir YouTube, pausa, volumen abajo) todos correctos, 0
+   errores de TV desde el arranque, sin tocar la pantalla del TV, y el tiempo
+   por comando bajó de 11-34 s a 0.8-2.4 s. En pantalla quedó
+   com.google.android.youtube.tv. T7 cerrado para el TV de sala.
+   Anotado, sin tocar: el puente abre una conexión ADB nueva por comando;
+   guardarla abierta ahorraría el saludo de cada vez.

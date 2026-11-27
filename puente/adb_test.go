@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto"
 	"crypto/rsa"
-	"crypto/sha256"
 	"errors"
 	"net"
 	"strings"
@@ -80,7 +79,7 @@ func (f *fakeAdbd) handle(c net.Conn) {
 		switch string(m.command) {
 		case cmdCNXN:
 			if f.wantAuth && f.signedTok == nil {
-				f.token = bytes.Repeat([]byte("deadbeef"), 4)
+				f.token = []byte("adbd-token-20-bytes!")
 				sendMsg(c, mkMsg(cmdAUTH, adbAuthToken, 0, f.token))
 				continue
 			}
@@ -91,7 +90,7 @@ func (f *fakeAdbd) handle(c net.Conn) {
 				f.signedTok = append([]byte(nil), m.data...)
 				if f.wantPair { // unknown key: ask for the public key line
 					f.wantPair = false
-					f.token = bytes.Repeat([]byte("dEaDbEeF"), 4)
+					f.token = []byte("second-token-20-byte")
 					sendMsg(c, mkMsg(cmdAUTH, adbAuthToken, 0, f.token))
 					continue
 				}
@@ -158,8 +157,11 @@ func TestADBHandshakeAndShell(t *testing.T) {
 	}
 }
 
-// TestADBAuthSignature proves the client signs the exact token adbd sent
-// with RSA-SHA256, so adbd can verify against the key it already stores.
+// TestADBAuthSignature proves the client signs the exact token adbd sent the
+// way adbd checks it: adbd calls RSA_verify(NID_sha1, token, token_size, ...),
+// and OpenSSL with NID_sha1 takes those bytes as an already-computed SHA-1
+// digest. So the 20-byte token is signed prehashed, never hashed again, or
+// adbd rejects every signature and falls back to the pairing dialog.
 func TestADBAuthSignature(t *testing.T) {
 	f := newFakeAdbd(t, true)
 	key, err := loadADBKey(t.TempDir())
@@ -178,9 +180,8 @@ func TestADBAuthSignature(t *testing.T) {
 	if len(f.signedTok) == 0 {
 		t.Fatal("client sent no AUTH signature")
 	}
-	h := sha256.Sum256(f.token)
-	if err := rsa.VerifyPKCS1v15(&key.Private.PublicKey, crypto.SHA256, h[:], f.signedTok); err != nil {
-		t.Fatal("AUTH signature does not verify against the sending key:", err)
+	if err := rsa.VerifyPKCS1v15(&key.Private.PublicKey, crypto.SHA1, f.token, f.signedTok); err != nil {
+		t.Fatal("AUTH signature does not verify the way adbd checks it:", err)
 	}
 }
 
@@ -263,5 +264,28 @@ func TestADBPairingDialogPending(t *testing.T) {
 	}
 	if len(f.gotPub) == 0 {
 		t.Error("the public key line never reached the TV")
+	}
+}
+
+// TestADBSignRejectsOddToken covers the guard on the token length: signing
+// prehashed only makes sense for the 20 bytes adbd sends, so anything else
+// is reported instead of being signed into a signature adbd cannot check.
+func TestADBSignRejectsOddToken(t *testing.T) {
+	key, err := loadADBKey(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tok := range [][]byte{nil, []byte("short"), make([]byte, 32)} {
+		if _, err := key.sign(tok); err == nil {
+			t.Errorf("sign(%d bytes) = nil error, want a refusal", len(tok))
+		}
+	}
+	good := make([]byte, adbTokenSize)
+	sig, err := key.sign(good)
+	if err != nil {
+		t.Fatalf("sign(%d bytes): %v", adbTokenSize, err)
+	}
+	if err := rsa.VerifyPKCS1v15(&key.Private.PublicKey, crypto.SHA1, good, sig); err != nil {
+		t.Fatal("the 20-byte token signature does not verify:", err)
 	}
 }
