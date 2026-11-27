@@ -7,6 +7,7 @@ import (
 	"crypto"
 	"crypto/rsa"
 	"crypto/sha256"
+	"errors"
 	"net"
 	"strings"
 	"testing"
@@ -22,6 +23,7 @@ type fakeAdbd struct {
 	token     []byte
 	signedTok []byte // AUTH SIGNATURE data received
 	gotPub    []byte // the public key line received, when wantPair was set
+	mutePub   bool   // after the key line, say nothing: the dialog is still up
 	served    []string
 	shellOut  func(cmd string, out func(string))
 }
@@ -96,6 +98,9 @@ func (f *fakeAdbd) handle(c net.Conn) {
 				sendMsg(c, mkMsg(cmdCNXN, adbVersion, adbMaxData, []byte("device::ok")))
 			case adbAuthPub:
 				f.gotPub = append([]byte(nil), m.data...)
+				if f.mutePub { // nobody accepted the dialog yet
+					continue
+				}
 				sendMsg(c, mkMsg(cmdCNXN, adbVersion, adbMaxData, []byte("device::ok")))
 			case adbAuthToken:
 				sendMsg(c, mkMsg(cmdAUTH, adbAuthToken, 0, f.token))
@@ -230,5 +235,33 @@ func TestADBTimeoutOnDeadHost(t *testing.T) {
 	defer cancel()
 	if _, err := connectADB(ctx, dead, key); err == nil {
 		t.Fatal("connect to dead host must fail")
+	}
+}
+
+// TestADBPairingDialogPending covers a TV that takes the key line and then
+// stays silent because the debugging dialog is still waiting on its screen:
+// the client must report that, not a plain unreachable TV.
+func TestADBPairingDialogPending(t *testing.T) {
+	f := newFakeAdbd(t, true)
+	f.wantPair = true
+	f.mutePub = true
+	old := adbPairWait
+	adbPairWait = 150 * time.Millisecond
+	t.Cleanup(func() { adbPairWait = old })
+
+	key, err := loadADBKey(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t0 := time.Now()
+	_, err = connectADB(context.Background(), f.addr(), key)
+	if !errors.Is(err, errADBPairing) {
+		t.Fatalf("err = %v, want errADBPairing", err)
+	}
+	if d := time.Since(t0); d > 3*time.Second {
+		t.Errorf("waited %v for the dialog, want about %v", d, adbPairWait)
+	}
+	if len(f.gotPub) == 0 {
+		t.Error("the public key line never reached the TV")
 	}
 }

@@ -281,8 +281,11 @@ func tvControl(action, tv, app, key, volume string, steps int) string {
 	}
 }
 
-// spokenReachable explains a TV that could not be reached.
+// spokenReachable explains a TV that could not be reached. It logs the cause
+// too: the spoken sentence hides which step of the ADB handshake failed, and
+// without the log an intermittent TV is impossible to diagnose.
 func spokenReachable(err error, tv string) string {
+	logf("tv %s: %v", tv, err)
 	switch {
 	case errors.Is(err, errADBPairing):
 		return "No alcanzo el TV de " + tv + ": acepta el aviso de depuración que aparece en su pantalla y vuelve a pedirmelo."

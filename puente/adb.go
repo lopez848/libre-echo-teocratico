@@ -52,6 +52,12 @@ const (
 // caller may retry right after the TV was accepted.
 var errADBPairing = errors.New("adb: unknown key; accept the pairing dialog on the TV")
 
+// adbPairWait is how long the client waits for adbd to answer the key line.
+// adbd answers only once somebody accepts the debugging dialog on the screen,
+// so a silent wait means the key is still unknown rather than the TV being
+// unreachable. Tests shorten it.
+var adbPairWait = 8 * time.Second
+
 // wireMsg is one ADB protocol message: a 24-byte header of six little-endian
 // words (command, arg0, arg1, length, checksum, magic) plus the data.
 type wireMsg struct {
@@ -271,9 +277,16 @@ func (c *adbConn) handshake(ctx context.Context) error {
 			if err := sendMsg(c.conn, mkMsg(cmdAUTH, adbAuthPub, 0, []byte(c.key.publine+"\x00"))); err != nil {
 				return err
 			}
-			m, err := c.readMsg(ctx)
+			// adbd answers this key line only once somebody accepts the
+			// debugging dialog on the screen. Silence, a closed connection
+			// and anything but CNXN all mean the same thing: the key is
+			// still unknown, so say that instead of letting the wait look
+			// like an unreachable TV.
+			pairCtx, cancel := context.WithTimeout(ctx, adbPairWait)
+			defer cancel()
+			m, err := c.readMsg(pairCtx)
 			if err != nil {
-				return err
+				return fmt.Errorf("%w: %v", errADBPairing, err)
 			}
 			if m.command != cmdCNXN {
 				return errADBPairing
