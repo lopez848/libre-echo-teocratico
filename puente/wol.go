@@ -274,6 +274,9 @@ var properNouns = map[string]string{"biblia": "Biblia", "jehova": "Jehová", "je
 
 // unshout lowercases words written in capitals (wol prints headings and the
 // first word of an article that way) so the voice does not read them oddly.
+// keepAcronyms stay in capitals: the voice spells them ("JW Broadcasting").
+var keepAcronyms = map[string]bool{"JW": true, "TV": true}
+
 func unshout(s string) string {
 	words := strings.Fields(s)
 	for i, w := range words {
@@ -286,7 +289,7 @@ func unshout(s string) string {
 				}
 			}
 		}
-		if letters < 2 || upper != letters {
+		if letters < 2 || upper != letters || keepAcronyms[strings.Trim(w, ".,;:¿?¡!()")] {
 			continue
 		}
 		lw := strings.ToLower(w)

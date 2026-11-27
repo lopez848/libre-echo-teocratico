@@ -87,3 +87,12 @@ func TestBroadcastingUnknownSection(t *testing.T) {
 		t.Fatalf("reply %q", got)
 	}
 }
+
+func TestSpokenKeepsTheJWAcronym(t *testing.T) {
+	if got := spoken("JW Broadcasting: Noviembre de 2026"); got != "JW Broadcasting: Noviembre de 2026" {
+		t.Fatalf("got %q", got)
+	}
+	if got := spoken("LA VERDAD CAMBIA VIDAS"); got != "La verdad cambia vidas" {
+		t.Fatalf("shouted titles are still softened: %q", got)
+	}
+}
