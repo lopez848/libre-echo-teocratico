@@ -7,8 +7,10 @@ import (
 	"crypto"
 	"crypto/rsa"
 	"errors"
+	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -25,6 +27,11 @@ type fakeAdbd struct {
 	mutePub   bool   // after the key line, say nothing: the dialog is still up
 	served    []string
 	shellOut  func(cmd string, out func(string))
+
+	mu       sync.Mutex
+	accepted int        // CNXN handshakes served: reuse must not grow this
+	live     []net.Conn // every accepted socket, so a test can cut one
+	gotClose int        // CLSE answers received, one per finished stream
 }
 
 func newFakeAdbd(t *testing.T, wantAuth bool) *fakeAdbd {
@@ -54,6 +61,10 @@ func (f *fakeAdbd) serve() {
 		if err != nil {
 			return
 		}
+		f.mu.Lock()
+		f.accepted++
+		f.live = append(f.live, c)
+		f.mu.Unlock()
 		go func() { defer c.Close(); f.handle(c) }()
 	}
 }
@@ -106,6 +117,10 @@ func (f *fakeAdbd) handle(c net.Conn) {
 			default:
 				return
 			}
+		case cmdCLSE:
+			f.mu.Lock()
+			f.gotClose++
+			f.mu.Unlock()
 		case cmdOPEN:
 			if !strings.HasPrefix(string(m.data), "shell:") {
 				return
@@ -288,4 +303,119 @@ func TestADBSignRejectsOddToken(t *testing.T) {
 	if err := rsa.VerifyPKCS1v15(&key.Private.PublicKey, crypto.SHA1, good, sig); err != nil {
 		t.Fatal("the 20-byte token signature does not verify:", err)
 	}
+}
+
+// cut closes the fake's live sockets, the way a TV dropping off the Wi-Fi
+// leaves the bridge holding a dead connection.
+func (f *fakeAdbd) cut() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, c := range f.live {
+		_ = c.Close()
+	}
+	f.live = nil
+}
+
+func (f *fakeAdbd) handshakes() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.accepted
+}
+
+// TestTVReusesConnection proves consecutive commands to one TV ride the same
+// ADB connection: the handshake, RSA signature included, is paid once.
+func TestTVReusesConnection(t *testing.T) {
+	f := newFakeAdbd(t, true)
+	tvs := testTVs(t, f.addr())
+
+	for i := 0; i < 4; i++ {
+		if _, err := tvs.run(tvs.items[0], "echo hola"); err != nil {
+			t.Fatalf("command %d: %v", i+1, err)
+		}
+	}
+	if got := f.handshakes(); got != 1 {
+		t.Errorf("%d handshakes for 4 commands, want 1", got)
+	}
+	if len(f.served) != 4 {
+		t.Errorf("the TV served %d commands, want 4", len(f.served))
+	}
+}
+
+// TestTVReconnectsAfterDrop covers the TV that went away and came back: the
+// cached connection is dead, so the bridge makes a new one and the command
+// still succeeds instead of surfacing the broken socket.
+func TestTVReconnectsAfterDrop(t *testing.T) {
+	f := newFakeAdbd(t, true)
+	tvs := testTVs(t, f.addr())
+
+	if _, err := tvs.run(tvs.items[0], "echo uno"); err != nil {
+		t.Fatal(err)
+	}
+	f.cut()
+
+	out, err := tvs.run(tvs.items[0], "echo dos")
+	if err != nil {
+		t.Fatalf("after the TV dropped: %v", err)
+	}
+	if out == "" {
+		t.Error("the retried command returned nothing")
+	}
+	if got := f.handshakes(); got != 2 {
+		t.Errorf("%d handshakes, want 2: one before the drop and one after", got)
+	}
+}
+
+// TestTVDropsIdleConnection covers a connection left idle past the keepalive:
+// the bridge opens a fresh one rather than waiting out a socket the TV may
+// have abandoned while it slept.
+func TestTVDropsIdleConnection(t *testing.T) {
+	f := newFakeAdbd(t, true)
+	tvs := testTVs(t, f.addr())
+	tvs.idle = 30 * time.Millisecond
+
+	if _, err := tvs.run(tvs.items[0], "echo uno"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(60 * time.Millisecond)
+	if _, err := tvs.run(tvs.items[0], "echo dos"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.handshakes(); got != 2 {
+		t.Errorf("%d handshakes, want 2: the idle one must not be reused", got)
+	}
+}
+
+// TestTVSerializesCommands proves commands to one TV do not interleave on the
+// shared connection: two streams reading the same socket would steal each
+// other's replies.
+func TestTVSerializesCommands(t *testing.T) {
+	f := newFakeAdbd(t, true)
+	tvs := testTVs(t, f.addr())
+
+	var wg sync.WaitGroup
+	errs := make([]error, 6)
+	for i := range errs {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, errs[i] = tvs.run(tvs.items[0], fmt.Sprintf("echo %d", i))
+		}(i)
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("command %d: %v", i, err)
+		}
+	}
+	if got := f.handshakes(); got != 1 {
+		t.Errorf("%d handshakes for 6 parallel commands, want 1", got)
+	}
+}
+
+// testTVs is one TV pointed at a fake adbd, with its own key directory.
+func testTVs(t *testing.T, addr string) *TVs {
+	t.Helper()
+	tvs := &TVs{KeyDir: t.TempDir(), items: []TV{{Name: "Sala", Host: addr}}}
+	t.Cleanup(tvs.closeAll)
+	return tvs
 }

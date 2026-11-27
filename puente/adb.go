@@ -346,6 +346,12 @@ func (c *adbConn) shell(ctx context.Context, command string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		// On a connection that serves more than one command, a late message
+		// from a finished stream must not be read as part of this one: adbd
+		// addresses every stream message to our local id.
+		if m.arg1 != 0 && m.arg1 != local {
+			continue
+		}
 		switch m.command {
 		case cmdOKAY:
 			c.remoteID = m.arg0
@@ -353,6 +359,10 @@ func (c *adbConn) shell(ctx context.Context, command string) (string, error) {
 			out.Write(m.data)
 			_ = sendMsg(c.conn, mkMsg(cmdOKAY, local, m.arg0, nil))
 		case cmdCLSE:
+			// Answer the close, or adbd keeps the stream half-open and its
+			// leftovers land in whatever command runs next on this
+			// connection.
+			_ = sendMsg(c.conn, mkMsg(cmdCLSE, local, m.arg0, nil))
 			return strings.ReplaceAll(out.String(), "\r\n", "\n"), nil
 		default:
 			return "", fmt.Errorf("adb: unexpected %q in shell stream", m.command)

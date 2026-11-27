@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -19,10 +20,32 @@ type TV struct {
 	Apps map[string]string `json:",omitempty"` // app overrides by fold name
 }
 
+// tvConn is a connection the bridge keeps open for one TV, with the moment
+// it was last used so an abandoned one is not trusted.
+type tvConn struct {
+	conn *adbConn
+	used time.Time
+}
+
+// tvIdle is how long an unused connection stays trusted. A TV that sleeps
+// drops the socket without telling us, and noticing that costs a full read
+// timeout, so anything older than this is replaced instead of reused.
+const tvIdle = 90 * time.Second
+
 // TVs is every TV the bridge may control; a nil group disables the tools.
+//
+// It keeps one ADB connection per TV: the handshake costs a round trip plus
+// an RSA signature, which is most of the time a short command takes. Commands
+// to the same TV are serialized, because two streams reading one socket would
+// steal each other's replies.
 type TVs struct {
 	KeyDir string // directory holding "adbkey"
 	items  []TV
+
+	idle  time.Duration // zero means tvIdle; tests shorten it
+	mu    sync.Mutex
+	open  map[string]*tvConn
+	locks map[string]*sync.Mutex
 }
 
 // loadTVs reads the TVs file; a missing file disables the feature and an
@@ -105,13 +128,115 @@ func (t *TVs) connect(tv TV) (*adbConn, error) {
 	return connectADB(ctx, tv.addr(), key)
 }
 
-// run is one shell command over a fresh connection.
+// idleLimit is how long this group trusts an unused connection.
+func (t *TVs) idleLimit() time.Duration {
+	if t.idle > 0 {
+		return t.idle
+	}
+	return tvIdle
+}
+
+// tvLock returns the lock that serializes commands to one TV.
+func (t *TVs) tvLock(host string) *sync.Mutex {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.locks == nil {
+		t.locks = map[string]*sync.Mutex{}
+	}
+	if l, ok := t.locks[host]; ok {
+		return l
+	}
+	l := &sync.Mutex{}
+	t.locks[host] = l
+	return l
+}
+
+// take returns the connection kept for host, or nil when there is none worth
+// reusing. It hands the connection out, so no other command can touch it.
+func (t *TVs) take(host string) *adbConn {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	kept, ok := t.open[host]
+	if !ok {
+		return nil
+	}
+	delete(t.open, host)
+	if time.Since(kept.used) > t.idleLimit() {
+		_ = kept.conn.Close()
+		return nil
+	}
+	return kept.conn
+}
+
+// keep stores the connection for the next command on host.
+func (t *TVs) keep(host string, c *adbConn) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.open == nil {
+		t.open = map[string]*tvConn{}
+	}
+	if old, ok := t.open[host]; ok && old.conn != c {
+		_ = old.conn.Close()
+	}
+	t.open[host] = &tvConn{conn: c, used: time.Now()}
+}
+
+// drop closes the connection for host without keeping it.
+func (t *TVs) drop(host string, c *adbConn) {
+	_ = c.Close()
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if kept, ok := t.open[host]; ok && kept.conn == c {
+		delete(t.open, host)
+	}
+}
+
+// closeAll closes every connection the group holds. The bridge runs until the
+// device restarts it, so this exists for tests and for an orderly shutdown.
+func (t *TVs) closeAll() {
+	t.mu.Lock()
+	kept := t.open
+	t.open = nil
+	t.mu.Unlock()
+	for _, c := range kept {
+		_ = c.conn.Close()
+	}
+}
+
+// run is one shell command on the TV, over the connection already open when
+// there is one. A kept connection can be dead without the socket saying so,
+// so a failed command on a reused connection is tried once more on a fresh
+// one; a command that fails on a brand new connection is reported as is.
 func (t *TVs) run(tv TV, command string) (string, error) {
+	host := tv.addr()
+	lock := t.tvLock(host)
+	lock.Lock()
+	defer lock.Unlock()
+
+	if c := t.take(host); c != nil {
+		out, err := t.shell(c, command)
+		if err == nil {
+			t.keep(host, c)
+			return out, nil
+		}
+		t.drop(host, c)
+	}
+
 	c, err := t.connect(tv)
 	if err != nil {
 		return "", err
 	}
-	defer c.Close()
+	out, err := t.shell(c, command)
+	if err != nil {
+		t.drop(host, c)
+		return "", err
+	}
+	t.keep(host, c)
+	return out, nil
+}
+
+// shell runs one command with the per-command deadline.
+func (t *TVs) shell(c *adbConn, command string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	return c.shell(ctx, command)

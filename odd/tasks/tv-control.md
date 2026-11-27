@@ -151,3 +151,28 @@ L6 2026-11-27: el dueño confirmó por su cuenta: "ya lo probe funciona bien".
    S1-S6 cerrados y verificados en hardware. Queda abierto solo T7 para el Fire
    TV (falta su IP o que aparezca en la red) y el Chromecast 233 por Cast en una
    fase 2. Rama feat/tv-control sin subir: subir y abrir PR es decisión suya.
+T9 [RENDIMIENTO] Conexión ADB guardada por TV (el dueño pidió "lo mejor") — inline.
+    [x] Hecho. El puente abría una conexión nueva por comando y pagaba el
+    saludo completo, firma RSA incluida, cada vez. Ahora guarda una conexión
+    por TV y la reusa.
+    Para que reusar sea seguro hubo que cerrar bien cada stream, que antes no
+    se hacía: `shell()` ahora contesta el CLSE (si no, adbd deja el stream a
+    medio cerrar y sus restos caen en el comando siguiente) e ignora los
+    mensajes que no van dirigidos a su propio id de stream.
+    Reglas nuevas, una prueba cada una (todas RED primero por falta de `idle` y
+    `closeAll`): TestTVReusesConnection (4 comandos, 1 solo saludo),
+    TestTVReconnectsAfterDrop (el TV se cae: reconecta y el comando igual
+    funciona, 2 saludos), TestTVDropsIdleConnection (una conexión parada más
+    de `tvIdle` = 90 s no se reusa, porque un TV que se durmió suelta el socket
+    sin avisar y detectarlo cuesta un timeout completo),
+    TestTVSerializesCommands (6 comandos en paralelo a un TV no se pisan en el
+    socket compartido; dos streams leyendo el mismo socket se robarían las
+    respuestas).
+    PRUEBAS: go test ./... ok puente 9.347s, ok puente/hap. go vet limpio.
+    go test -race -run TestTV ok 2.186s, sin carreras.
+    HARDWARE: desplegado en el Echo (respaldo puente.bak-pool); 7 comandos
+    seguidos todos correctos, 0 errores de TV desde el arranque. Tiempo por
+    turno 581-1582 ms contra 812-2387 ms antes del pool. Ojo con ese número:
+    incluye la ida y vuelta al modelo, que es la parte más grande, así que el
+    ahorro del saludo ADB es menor que la diferencia completa. La prueba
+    limpia del mecanismo es TestTVReusesConnection: 1 saludo en vez de 4.
