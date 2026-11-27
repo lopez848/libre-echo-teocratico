@@ -147,3 +147,7 @@ L5 2026-11-27 DEFECTO REAL encontrado al verificar en hardware, no era el TV:
    com.google.android.youtube.tv. T7 cerrado para el TV de sala.
    Anotado, sin tocar: el puente abre una conexión ADB nueva por comando;
    guardarla abierta ahorraría el saludo de cada vez.
+L6 2026-11-27: el dueño confirmó por su cuenta: "ya lo probe funciona bien".
+   S1-S6 cerrados y verificados en hardware. Queda abierto solo T7 para el Fire
+   TV (falta su IP o que aparezca en la red) y el Chromecast 233 por Cast en una
+   fase 2. Rama feat/tv-control sin subir: subir y abrir PR es decisión suya.
