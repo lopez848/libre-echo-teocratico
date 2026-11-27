@@ -74,3 +74,38 @@ Hallazgos (verificados en la red 192.168.1.0/24):
      puede estar profundamente apagado o en otra red).
    - El resto de hosts son celulares/Ecos/impresora/aire (no TVs).
 Próximo paso: T1 → T2.
+L3 2026-11-27: prueba END-TO-END en hardware real con el cliente del puente
+   (commit 010f709): KEYCODE_WAKEUP + monkey YouTube → el TV despertó y abrió
+   YouTube ("Events injected: 1" ... "lanzado"). Commit de la unidad: 010f709.
+   Previo a desplegar en el Echo: crear /data/libreecho/local/puente-tvs.json
+   (ejemplo: [{"name":"Sala","host":"192.168.1.247"}]) y aceptar el diálogo de
+   depuración en cada TV UNA vez (la primera conexión desde el Echo presentará
+   su clave nueva). Chromecast 233 queda para fase 2 vía Cast; Fire TV se suma
+   solo con su IP/aparecer en la red. Pendiente revisión de riesgo (RDD).
+L4 2026-11-27 DESPLIEGUE en el Echo (biscuit, 192.168.1.211):
+   - `go test ./...` en puente con la cadena parcheada: ok puente 7.060s,
+     ok puente/hap 0.568s.
+   - Binario ARMv7 construido con ~/.local/share/go-echo/go1.27.4
+     (CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 -buildvcs=false), 13 MB.
+   - Push a services/puente/puente.new → respaldo `puente.bak-20261127` →
+     chmod 755 → mv → kill. El supervisor lo reinició: service.puente=running,
+     pid 3272, log "puente listening on 127.0.0.1:18080".
+   - Config creada: /data/libreecho/local/puente-tvs.json
+     `[{"name":"Sala","host":"192.168.1.247"}]` (644). Sin error "tv:" en el log,
+     así que cargó bien.
+   - Clave ADB del puente generada sola en el primer uso:
+     /data/libreecho/local/adbkey y adbkey.pub (600, root).
+   - Prueba por el endpoint del puente (POST /v1/chat/completions con la clave
+     del aparato, "prende el TV de la sala"): el modelo llamó la herramienta y
+     el puente respondió "No alcanzo el TV de Sala."
+   LIMITACIÓN CONFIRMADA: el TCL 192.168.1.247 estaba fuera de la red (ARP
+   FAILED desde el Echo y desde la PC; ping 100% perdido en los dos). En
+   reposo profundo el TCL suelta el Wi-Fi, así que ADB no puede prenderlo desde
+   apagado: "prender la pantalla" solo sirve desde reposo con red activa. Si el
+   TV tiene la opción de red en reposo, hay que activarla. No hay Wake-on-LAN
+   en el puente (el paquete `wol.go` es la Biblioteca en Línea, no Wake-on-LAN).
+   PENDIENTE para cerrar S2/S7: con el TV encendido, repetir la prueba y
+   ACEPTAR UNA VEZ en la pantalla del TV el diálogo de depuración, porque el
+   Echo presenta una clave nueva (la de esta PC no se copió a propósito).
+   Rollback del puente: `cd /data/libreecho/local/services/puente && cp -p
+   puente.bak-20261127 puente && kill $(pidof puente)`.
