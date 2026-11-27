@@ -16,7 +16,7 @@ Branch: feat/ecobee. Delivery: ask-on-risk. Test runner: `go test -race ./...` i
 - T2 (S2) thermostat model: read/write characteristics (current temp 0x11, target temp 0x35, target state 0x33, current state 0x0F, units 0x36). Route: inline. Done fc910b9.
 - T3 (S2, S3) voice tools in puente + pairing flow + help text. Route: inline. Done fc910b9 + indoor-question shortcut; deployed.
 - T4 (S1) pair with the real thermostat on the owner's Echo and test by voice. Route: inline.
-- T5 review by Gentle Shell (security: pairing keys, crypto). Route: delegated.
+- T5 review by Gentle Shell (security: pairing keys, crypto). Route: delegated. Done: findings 1-2 fixed (97a0a2a), recheck clean; 3-4 accepted as limits.
 
 ## Log
 
