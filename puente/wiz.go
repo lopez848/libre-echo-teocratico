@@ -29,6 +29,13 @@ type Wiz struct {
 	effectDone chan struct{}
 }
 
+// effectRunning reports whether the aurora is on.
+func (w *Wiz) effectRunning() bool {
+	w.emu.Lock()
+	defer w.emu.Unlock()
+	return w.stopEffect != nil
+}
+
 // StopEffect ends the running light effect, if any.
 func (w *Wiz) StopEffect() {
 	if w == nil {
@@ -229,6 +236,9 @@ func lightError(err error) string {
 func lightStatus() string {
 	if svc.Light == nil {
 		return "No hay ningún bombillo configurado."
+	}
+	if svc.Light.effectRunning() {
+		return "La luz está con la aurora boreal."
 	}
 	raw, err := svc.Light.call("getPilot", map[string]any{})
 	if err != nil {

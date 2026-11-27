@@ -147,6 +147,9 @@ func TestAuroraEffectRunsUntilAnotherCommand(t *testing.T) {
 		t.Fatalf("reply %q", got)
 	}
 	waitFor(t, func() bool { return b.sets() >= 20 })
+	if got := Exec(&fakeAPI{}, "light_status", `{}`); got != "La luz está con la aurora boreal." {
+		t.Fatalf("status during the aurora %q", got)
+	}
 	r, g, bl := b.get("r").(float64), b.get("g").(float64), b.get("b").(float64)
 	if r > g && r > bl {
 		t.Fatalf("aurora colors are greens, teals and violets, got r=%v g=%v b=%v", r, g, bl)
