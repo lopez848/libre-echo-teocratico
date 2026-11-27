@@ -99,6 +99,7 @@ func main() {
 		return
 	}
 	svc.Thermo = &Thermostat{File: *thermoFile}
+	svc.Light = &Wiz{}
 	if *ttsTest != "" {
 		r := &Riva{URL: "https://grpc.nvcf.nvidia.com/nvidia.riva.tts.RivaSpeechSynthesis/Synthesize",
 			FunctionID: "877104f7-e885-42b9-8de8-f6e4c6303969", KeyFile: *keyFile, Voice: *ttsVoice,

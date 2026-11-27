@@ -22,6 +22,9 @@ import (
 // (brutella/hap) shown in Fahrenheit, like the owner's ecobee.
 func withThermostat(t *testing.T) *accessory.Thermostat {
 	t.Helper()
+	if raceEnabled {
+		t.Skip("brutella/dnssd races internally; run without -race")
+	}
 	th := accessory.NewThermostat(accessory.Info{Name: "Aire acondicionado"})
 	th.Thermostat.TemperatureDisplayUnits.SetValue(1)
 	th.Thermostat.CurrentTemperature.SetValue(22.2) // 72 °F

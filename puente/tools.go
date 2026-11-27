@@ -46,6 +46,8 @@ var toolSpecs = json.RawMessage(`[
 {"type":"function","function":{"name":"play_youtube","description":"Play music from YouTube. mode artist: only songs by one artist ('pon canciones de Juan Luis Guerra'); mode song: one specific song, then similar songs ('pon Bachata Rosa', 'pon la canción Provenza de Karol G'); mode like_current: songs similar to the one playing now ('pon algo parecido a esto'). Not for jw.org music or radio stations.","parameters":{"type":"object","properties":{"query":{"type":"string","description":"artist name, or song title with optional artist; empty for like_current"},"mode":{"type":"string","enum":["artist","song","like_current"]}},"required":["mode"]}}},
 {"type":"function","function":{"name":"thermostat_status","description":"Say the INDOOR temperature measured by the home thermostat and what the air conditioning or heating is doing. Use it for 'qué temperatura hace en la casa', 'adentro', 'en el apartamento', 'el termostato', '¿está prendido el aire?'. Not for the outdoor weather.","parameters":{"type":"object","properties":{}}}},
 {"type":"function","function":{"name":"set_thermostat","description":"Control the home thermostat: mode off (apaga el aire/la calefacción), heat (calefacción), cool (aire acondicionado), auto; and/or the target temperature in the thermostat's degrees ('pon el aire a 72', 'sube la calefacción a 70').","parameters":{"type":"object","properties":{"mode":{"type":"string","enum":["off","heat","cool","auto"]},"temperature":{"type":"number"}}}}},
+{"type":"function","function":{"name":"light_status","description":"Say whether the room light (WiZ bulb) is on, its color and brightness.","parameters":{"type":"object","properties":{}}}},
+{"type":"function","function":{"name":"set_light","description":"Control the room light (WiZ bulb): 'prende la luz' (state on), 'apaga la luz' (state off), 'pon la luz al 50' (brightness 10-100), 'pon la luz azul' (color), 'luz cálida/fría' (white warm/neutral/cool). Combine fields as needed.","parameters":{"type":"object","properties":{"state":{"type":"string","enum":["on","off"]},"brightness":{"type":"number"},"color":{"type":"string","enum":["rojo","naranja","amarillo","verde","azul","morado","rosado","blanco"]},"white":{"type":"string","enum":["warm","neutral","cool"]}}}}},
 {"type":"function","function":{"name":"now_playing","description":"Say which song is playing now.","parameters":{"type":"object","properties":{}}}},
 {"type":"function","function":{"name":"sleep_sounds","description":"Play relaxing background noise to sleep or concentrate.","parameters":{"type":"object","properties":{"sound":{"type":"string","enum":["white","pink","brown","heartbeat"],"description":"Default brown"},"minutes":{"type":"integer","description":"How long, 0 = until stopped"}}}}}
 ]`)
@@ -143,6 +145,11 @@ func Exec(api API, name, args string) string {
 	case "set_thermostat":
 		t, ok := a["temperature"].(float64)
 		return setThermostat(strArg(a, "mode"), t, ok)
+	case "light_status":
+		return lightStatus()
+	case "set_light":
+		b, ok := a["brightness"].(float64)
+		return setLight(strArg(a, "state"), strArg(a, "color"), strArg(a, "white"), b, ok)
 	case "now_playing":
 		if svc.Player == nil {
 			return "No hay nada sonando de una lista."
@@ -664,6 +671,7 @@ type Services struct {
 	Audio    *audioState // official recording last started, for paragraph jumps
 	Player   *Player
 	Thermo   *Thermostat
+	Light    *Wiz
 	Location *time.Location
 	Now      func() time.Time
 }

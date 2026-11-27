@@ -15,6 +15,9 @@ import (
 // startThermostat runs a real HomeKit accessory (brutella/hap) on localhost.
 func startThermostat(t *testing.T) (addr string, th *accessory.Thermostat) {
 	t.Helper()
+	if raceEnabled {
+		t.Skip("brutella/dnssd races internally; run without -race")
+	}
 	th = accessory.NewThermostat(accessory.Info{Name: "Aire acondicionado", Manufacturer: "test"})
 	th.Thermostat.CurrentTemperature.SetValue(22.5)
 	th.Thermostat.TargetTemperature.SetValue(21)
