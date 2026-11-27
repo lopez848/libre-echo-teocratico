@@ -65,6 +65,8 @@ func main() {
 	creds := flag.String("creds", "/data/libreecho/local/puente.creds", "file with device username and password")
 	tasteFile := flag.String("taste", "/data/libreecho/local/puente-taste.json", "file where the bridge learns which YouTube songs and artists the owner plays or skips")
 	model := flag.String("model", "", "override model (default: the one agentd sends)")
+	remoteConf := flag.String("remote", "/data/libreecho/local/remote.conf", "file with the private ntfy topic Mia takes typed commands from (topic=...); missing disables it")
+	remoteModel := flag.String("remote-model", "nvidia/nemotron-3.5-bolt-e4b", "model for typed commands, which come without agentd")
 	flag.BoolVar(&verbose, "v", false, "log transcripts")
 	wyAddr := flag.String("wyoming", "", "serve Wyoming TTS on this address (e.g. 127.0.0.1:10200); empty disables")
 	ttsVoice := flag.String("tts-voice", "Magpie-Multilingual.ES-US.Mia", "NVIDIA Magpie voice")
@@ -192,6 +194,23 @@ func main() {
 		}
 		log.Printf("wyoming tts on %s voice %s", *wyAddr, *ttsVoice)
 		go func() { log.Fatal(wy.Serve(l)) }()
+	}
+	if rm, err := loadRemote(*remoteConf); err != nil {
+		log.Printf("remote commands disabled: %v", err)
+	} else if rm != nil {
+		rm.HTTP = &http.Client{}
+		keys := &Riva{KeyFile: *keyFile}
+		rm.Answer = func(ctx context.Context, text string) string {
+			key, err := keys.key()
+			if err != nil {
+				return "No pude leer la clave del servicio."
+			}
+			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			return s.answer(ctx, inbound{Model: *remoteModel, Messages: []chatMessage{{Role: "user", Content: text}}}, "Bearer "+key)
+		}
+		log.Printf("remote commands on ntfy (%s)", rm.Server)
+		go rm.Run(context.Background())
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/chat/completions", s.chat)
