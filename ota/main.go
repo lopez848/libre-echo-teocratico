@@ -70,6 +70,9 @@ func main() {
 // restartService stops the program; the LibreEcho local supervisor starts
 // the new binary again by itself.
 func restartService(name string) error {
+	if err := announceRestart(plannedFile, name, time.Now(), 3*time.Minute); err != nil {
+		log.Printf("ota: could not announce the restart to vigia: %v", err)
+	}
 	for _, pid := range pidsOf(name) {
 		if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
 			return err

@@ -261,3 +261,60 @@ func TestOutboxRetriesFailedSends(t *testing.T) {
 		t.Fatalf("queue keeps only the newest Max alerts: %v", sent)
 	}
 }
+
+// A restart someone announced (a deploy or an OTA update) is recorded but
+// not sent to the phone (owner, 2026-11-26).
+func TestPlannedRestartIsSilent(t *testing.T) {
+	w := newWatcher(90*time.Second, time.Hour)
+	t0 := time.Date(2026, 11, 26, 22, 0, 0, 0, time.UTC)
+	until := t0.Add(3 * time.Minute)
+	w.Planned = func(now time.Time) map[string]bool {
+		return map[string]bool{"puente": now.Before(until)}
+	}
+	var events []Event
+	w.OnEvent = func(e Event) { events = append(events, e) }
+	down := []Problem{
+		{Key: "restart:puente", Text: "El servicio puente se cayó y el supervisor lo reinició.", Instant: true},
+		{Key: "service:puente", Text: "El servicio puente no está corriendo (exited:143)."},
+		{Key: "http:puente", Text: "El puente no responde."},
+		{Key: "tcp:wyoming", Text: "La voz de la nube no responde."},
+	}
+	if a := w.Tick(t0, down); len(a) != 0 {
+		t.Fatalf("a planned restart must not alert: %+v", a)
+	}
+	if a := w.Tick(t0.Add(20*time.Second), nil); len(a) != 0 {
+		t.Fatalf("recovering from a planned restart must not alert: %+v", a)
+	}
+	planned := 0
+	for _, e := range events {
+		if e.Status == "planned" {
+			planned++
+		}
+	}
+	if planned == 0 {
+		t.Fatal("planned restarts must still be recorded in the event log")
+	}
+	// Other services still alert during the window.
+	if a := w.Tick(t0.Add(30*time.Second), []Problem{{Key: "restart:vigia", Text: "x", Instant: true}}); len(a) != 1 {
+		t.Fatalf("another service must still alert: %+v", a)
+	}
+	// Still down after the window: alert as usual.
+	stuck := []Problem{{Key: "service:puente", Text: "El servicio puente no está corriendo (exited:1)."}}
+	w.Tick(t0.Add(2*time.Minute), stuck)
+	if a := w.Tick(t0.Add(4*time.Minute), stuck); len(a) != 1 || !strings.Contains(a[0].Message, "Sigue fallando") {
+		t.Fatalf("a restart that does not come back must alert after the window: %+v", a)
+	}
+}
+
+func TestPlannedFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "planned")
+	now := time.Unix(1_800_000_000, 0)
+	if got := readPlanned(path, now); len(got) != 0 {
+		t.Fatalf("no file: %v", got)
+	}
+	os.WriteFile(path, []byte("puente 1800000100\nvigia 1799999000\nbad line\n"), 0o644)
+	got := readPlanned(path, now)
+	if !got["puente"] || got["vigia"] || len(got) != 1 {
+		t.Fatalf("got %v, want only puente (vigia expired)", got)
+	}
+}

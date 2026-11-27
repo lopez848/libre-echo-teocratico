@@ -88,6 +88,7 @@ func main() {
 	runDir := flag.String("run-dir", "/run/libreecho-local", "local supervisor run directory")
 	logFile := flag.String("log", "/var/log/libreecho/local/puente.log", "bridge log to scan for errors")
 	events := flag.String("events", "/data/libreecho/local/vigia/events.jsonl", "event history file")
+	plannedFile := flag.String("planned", "/data/libreecho/local/vigia/planned", "announced restarts (\"service unix-expiry\" per line): recorded, not alerted")
 	health := flag.String("health", "http://127.0.0.1:18080/health", "bridge health URL")
 	wyoming := flag.String("wyoming", "127.0.0.1:10200", "cloud voice Wyoming address")
 	testAlert := flag.String("test-alert", "", "send this text as a notification and exit")
@@ -154,6 +155,7 @@ func main() {
 	evlog := &eventLog{Path: *events, Max: 256 << 10}
 	w := newWatcher(*recheck, *rate)
 	w.OnEvent = evlog.Add
+	w.Planned = func(now time.Time) map[string]bool { return readPlanned(*plannedFile, now) }
 	log.Printf("vigia watching every %s (alerts: %v)", *interval, notifier != nil)
 	out := &outbox{Max: 20}
 	for {

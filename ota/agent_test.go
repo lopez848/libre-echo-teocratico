@@ -327,3 +327,22 @@ func TestHealthFailsFastOnACrashLoop(t *testing.T) {
 		t.Fatal("a service that comes up and stays up is healthy")
 	}
 }
+
+// Before restarting a service the agent announces it to the failure watcher
+// (vigia), which then records the restart without alerting the phone.
+func TestAnnounceRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vigia", "planned")
+	now := time.Unix(1_800_000_000, 0)
+	os.MkdirAll(filepath.Dir(path), 0o755)
+	os.WriteFile(path, []byte("vigia 1700000000\n"), 0o644) // expired: dropped
+	if err := announceRestart(path, "puente", now, 3*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err := announceRestart(path, "vigia", now, 3*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(path)
+	if string(b) != "puente 1800000180\nvigia 1800000180\n" {
+		t.Fatalf("planned file %q", b)
+	}
+}

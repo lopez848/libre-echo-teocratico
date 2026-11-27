@@ -203,6 +203,7 @@ type pending struct {
 	text    string
 	alerted bool
 	muted   bool // reached the recheck inside the rate window: no alerts
+	planned bool // seen during an announced restart of its service
 }
 
 // watcher turns check results into alerts: state problems are rechecked
@@ -214,6 +215,22 @@ type watcher struct {
 	lastSent      map[string]time.Time
 	muted         map[string]int
 	OnEvent       func(Event)
+	// Planned returns the services with an announced restart in progress
+	// (a deploy or an OTA update): their failures are recorded, not sent.
+	Planned func(now time.Time) map[string]bool
+}
+
+// serviceOf names the service a problem belongs to, for planned restarts.
+func serviceOf(key string) string {
+	if key == "tcp:wyoming" {
+		return "puente" // the bridge serves the cloud voice
+	}
+	for _, p := range []string{"restart:", "service:", "http:"} {
+		if strings.HasPrefix(key, p) {
+			return strings.TrimPrefix(key, p)
+		}
+	}
+	return ""
 }
 
 func newWatcher(recheck, rate time.Duration) *watcher {
@@ -253,7 +270,16 @@ func (w *watcher) send(now time.Time, key, msg string, recovered bool) Alert {
 func (w *watcher) Tick(now time.Time, probs []Problem) []Alert {
 	var out []Alert
 	current := map[string]bool{}
+	planned := map[string]bool{}
+	if w.Planned != nil {
+		planned = w.Planned(now)
+	}
+	isPlanned := func(key string) bool { s := serviceOf(key); return s != "" && planned[s] }
 	for _, p := range probs {
+		if p.Instant && isPlanned(p.Key) {
+			w.event(now, p.Key, "planned", p.detail())
+			continue
+		}
 		if p.Instant {
 			w.event(now, p.Key, "detected", p.detail())
 			if w.limited(now, p.Key) {
@@ -269,7 +295,14 @@ func (w *watcher) Tick(now time.Time, probs []Problem) []Alert {
 		if !ok {
 			w.pend[p.Key] = &pending{first: now, text: p.Text}
 			w.event(now, p.Key, "detected", p.detail())
+			if isPlanned(p.Key) {
+				w.pend[p.Key].planned = true
+			}
 			continue
+		}
+		if isPlanned(p.Key) {
+			pd.planned = true
+			continue // wait: the restart was announced
 		}
 		if !pd.alerted && now.Sub(pd.first) >= w.recheck {
 			pd.alerted = true
@@ -293,6 +326,10 @@ func (w *watcher) Tick(now time.Time, probs []Problem) []Alert {
 		}
 		pd := w.pend[k]
 		delete(w.pend, k)
+		if pd.planned && !pd.alerted {
+			w.event(now, k, "planned", "Se recuperó del reinicio planeado: "+pd.text)
+			continue
+		}
 		if pd.muted {
 			w.event(now, k, "recovered", "Se recuperó (aviso silenciado): "+pd.text)
 			continue
@@ -407,4 +444,26 @@ func loadConfig(path string) (map[string]string, error) {
 		}
 	}
 	return c, sc.Err()
+}
+
+// readPlanned reads announced restarts: one "service unix-expiry" per line.
+// Expired or malformed lines are ignored.
+func readPlanned(path string, now time.Time) map[string]bool {
+	out := map[string]bool{}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return out
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		f := strings.Fields(line)
+		if len(f) != 2 {
+			continue
+		}
+		until, err := strconv.ParseInt(f[1], 10, 64)
+		if err != nil || !now.Before(time.Unix(until, 0)) {
+			continue
+		}
+		out[f[0]] = true
+	}
+	return out
 }
