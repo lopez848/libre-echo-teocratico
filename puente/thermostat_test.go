@@ -150,3 +150,31 @@ func TestThermostatFindsANewAddress(t *testing.T) {
 		t.Fatal("the pairing file must stay 600")
 	}
 }
+
+// If the pairing cannot be saved, the error says how to recover: the
+// thermostat is paired to keys that are gone (review T5).
+func TestPairingSaveFailureExplainsTheRecovery(t *testing.T) {
+	if raceEnabled {
+		t.Skip("brutella/dnssd races internally; run without -race")
+	}
+	th := accessory.NewThermostat(accessory.Info{Name: "x"})
+	l, _ := net.Listen("tcp", "127.0.0.1:0")
+	addr := l.Addr().String()
+	l.Close()
+	s, _ := bhap.NewServer(bhap.NewFsStore(filepath.Join(t.TempDir(), "db")), th.A)
+	s.Pin, s.Addr = "11122333", addr
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.ListenAndServe(ctx)
+	for i := 0; i < 100; i++ {
+		if c, err := net.Dial("tcp", addr); err == nil {
+			c.Close()
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	err := PairThermostat(filepath.Join(t.TempDir(), "missing-dir", "thermostat.json"), addr, "11122333")
+	if err == nil || !strings.Contains(err.Error(), "reset HomeKit on the thermostat") {
+		t.Fatalf("err = %v", err)
+	}
+}

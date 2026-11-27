@@ -85,6 +85,11 @@ func TestPairVerifyReadAndWrite(t *testing.T) {
 	if vals[cur] != 22.5 || vals[tgt] != 21.0 {
 		t.Fatalf("values %v", vals)
 	}
+	// A characteristic the accessory cannot read must be an error, not a
+	// silent zero (review T5).
+	if _, err := c.Get(cur, ID{cur.AID, 9999}); err == nil {
+		t.Fatal("a missing characteristic must make Get fail")
+	}
 	if err := c.Put(map[ID]any{tgt: 23.5}); err != nil {
 		t.Fatal(err)
 	}

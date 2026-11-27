@@ -32,16 +32,33 @@ func PairThermostat(file, addr, code string) error {
 	if err != nil {
 		return err
 	}
-	return saveThermostat(file, thermostatFile{Addr: addr, Pairing: p})
+	if err := saveThermostat(file, thermostatFile{Addr: addr, Pairing: p}); err != nil {
+		// HomeKit allows one controller: the thermostat is now paired with
+		// keys that are lost.
+		return fmt.Errorf("paired, but the pairing could not be saved (%v); reset HomeKit on the thermostat (Settings > Reset > HomeKit) and pair again", err)
+	}
+	return nil
 }
 
 func saveThermostat(file string, f thermostatFile) error {
 	b, _ := json.Marshal(f)
 	tmp := file + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	w, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
 		return err
 	}
-	if err := os.Chmod(tmp, 0o600); err != nil {
+	_, err = w.Write(b)
+	if err == nil {
+		err = w.Sync() // the keys must be on disk before the rename
+	}
+	if cerr := w.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Chmod(tmp, 0o600)
+	}
+	if err != nil {
+		os.Remove(tmp)
 		return err
 	}
 	return os.Rename(tmp, file)

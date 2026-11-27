@@ -164,8 +164,14 @@ func (c *Client) Get(ids ...ID) (map[ID]any, error) {
 	}
 	out := map[ID]any{}
 	for _, ch := range r.Characteristics {
-		if ch.Status == 0 {
-			out[ID{ch.AID, ch.IID}] = ch.Value
+		if ch.Status != 0 {
+			return nil, fmt.Errorf("hap: characteristic %d.%d unavailable (status %d)", ch.AID, ch.IID, ch.Status)
+		}
+		out[ID{ch.AID, ch.IID}] = ch.Value
+	}
+	for _, id := range ids {
+		if _, ok := out[id]; !ok {
+			return nil, fmt.Errorf("hap: characteristic %d.%d missing from the reply", id.AID, id.IID)
 		}
 	}
 	return out, nil
