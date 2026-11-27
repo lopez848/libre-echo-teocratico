@@ -49,6 +49,7 @@ var toolSpecs = json.RawMessage(`[
 {"type":"function","function":{"name":"light_status","description":"Say whether the room light (WiZ bulb) is on, its color and brightness.","parameters":{"type":"object","properties":{}}}},
 {"type":"function","function":{"name":"set_light","description":"Control the room light (WiZ bulb): 'prende la luz' (state on), 'apaga la luz' (state off), 'pon la luz al 50' (brightness 10-100), 'pon la luz azul' (color), 'luz cálida/fría' (white warm/neutral/cool). Combine fields as needed.","parameters":{"type":"object","properties":{"state":{"type":"string","enum":["on","off"]},"brightness":{"type":"number"},"color":{"type":"string","enum":["rojo","naranja","amarillo","verde","azul","morado","rosado","blanco"]},"white":{"type":"string","enum":["warm","neutral","cool"]},"scene":{"type":"string","description":"a built-in scene by its Spanish name: océano, atardecer, chimenea, bosque, jungla, velas, fiesta, club, relajación, concentración, luz nocturna, hora de dormir, despertar, primavera, verano, otoño, navidad, halloween, cielo nevado..."},"effect":{"type":"string","enum":["aurora"],"description":"aurora: northern lights effect ('aurora boreal')"}}}}},
 {"type":"function","function":{"name":"light_help","description":"Explain everything the room light (bulb) can do and how to ask for it ('qué podemos hacer con el bombillo').","parameters":{"type":"object","properties":{}}}},
+{"type":"function","function":{"name":"play_jw_broadcasting","description":"Play videos (their audio) from JW Broadcasting (tv.jw.org). section: programa_mensual (the monthly program), discursos, noticias, experiencias (entrevistas y experiencias), producciones (dramas, películas), ninos, jovenes, familia, galaad (graduación de Galaad), reunion_anual, programas_especiales, asamblea (the latest regional convention). mode reciente for the newest one ('el programa de este mes', 'el último'), otherwise aleatorio.","parameters":{"type":"object","properties":{"section":{"type":"string","enum":["programa_mensual","discursos","noticias","experiencias","producciones","ninos","jovenes","familia","galaad","reunion_anual","programas_especiales","asamblea"]},"mode":{"type":"string","enum":["reciente","aleatorio"]}},"required":["section"]}}},
 {"type":"function","function":{"name":"now_playing","description":"Say which song is playing now.","parameters":{"type":"object","properties":{}}}},
 {"type":"function","function":{"name":"sleep_sounds","description":"Play relaxing background noise to sleep or concentrate.","parameters":{"type":"object","properties":{"sound":{"type":"string","enum":["white","pink","brown","heartbeat"],"description":"Default brown"},"minutes":{"type":"integer","description":"How long, 0 = until stopped"}}}}}
 ]`)
@@ -125,6 +126,8 @@ func Exec(api API, name, args string) string {
 		return readWatchtower(strArg(a, "week"))
 	case "read_workbook":
 		return readWorkbook(strArg(a, "week"))
+	case "play_jw_broadcasting":
+		return playJWBroadcasting(strArg(a, "section"), strArg(a, "mode"))
 	case "play_morning_worship":
 		return playMorningWorship(strArg(a, "mode"))
 	case "jw_help":

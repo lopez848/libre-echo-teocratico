@@ -292,6 +292,7 @@ var jwFeatures = []struct {
 	{[]string{"read_bible"}, "Leer cualquier capítulo o versículo de la Biblia: «lee Juan 3, versículo 16» o «lee el Salmo 23»."},
 	{[]string{"play_jw_music"}, "Poner música de jw.org: «pon Música internacional» o «pon Canciones originales»."},
 	{[]string{"play_morning_worship"}, "Poner la adoración matutina más reciente: «pon la adoración matutina más reciente», o varias en orden aleatorio: «pon adoraciones matutinas»."},
+	{[]string{"play_jw_broadcasting"}, "Poner JW Broadcasting: «pon el programa mensual de JW Broadcasting» para el de este mes, o «pon discursos», «pon experiencias», «pon producciones», «pon videos para niños», «para jóvenes» o «para la familia», «pon la graduación de Galaad», «pon la reunión anual», «pon programas especiales» o «pon la asamblea regional». Las producciones van con audiodescripción, que cuenta lo que pasa en pantalla."},
 	{[]string{"resume_reading", "read_paragraph"}, "Mientras leo o suena algo, di «pausa» y después «sigue», «continuar» o «reanudar» para seguir donde quedó; «para» lo detiene todo; y «lee el párrafo 5» salta a un párrafo."},
 }
 
