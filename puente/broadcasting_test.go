@@ -109,3 +109,14 @@ func TestVideoTitlesAreCleanedForTheVoice(t *testing.T) {
 		}
 	}
 }
+
+func TestBroadcastingReplyDoesNotDoubleThePunctuation(t *testing.T) {
+	broadcastingCategories["VODDramasAD"] = `{"category":{"key":"VODDramasAD","type":"ondemand","media":[` +
+		media("¿Cómo conseguir amigos? (con audiodescripciones)", "2026-11-01T10:00:00Z", "https://v/amigos") + `]}}`
+	defer delete(broadcastingCategories, "VODDramasAD")
+	withBroadcasting(t)
+	got := Exec(&fakeAPI{}, "play_jw_broadcasting", `{"section":"producciones","mode":"reciente"}`)
+	if got != "Poniendo lo más reciente de las producciones audiovisuales con audiodescripción: ¿Cómo conseguir amigos?" {
+		t.Fatalf("reply %q", got)
+	}
+}

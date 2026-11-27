@@ -194,7 +194,7 @@ func playJWBroadcasting(section, mode string) string {
 		if err != nil {
 			return failed(err)
 		}
-		return "Poniendo lo más reciente de " + sec.label + ": " + spoken(first.Title) + "."
+		return endSentence("Poniendo lo más reciente de " + sec.label + ": " + spoken(first.Title))
 	}
 	if sec.key == "" { // a convention is heard in order, first session first
 		ordered := make([]Track, len(tracks))
@@ -205,11 +205,19 @@ func playJWBroadcasting(section, mode string) string {
 		if err != nil {
 			return failed(err)
 		}
-		return "Poniendo " + sec.label + ". Empieza " + spoken(first.Title) + "."
+		return endSentence("Poniendo " + sec.label + ". Empieza " + spoken(first.Title))
 	}
 	first, err := startMusic(sec.label, tracks, true)
 	if err != nil {
 		return failed(err)
 	}
-	return "Poniendo " + sec.label + " en orden aleatorio. Empieza " + spoken(first.Title) + "."
+	return endSentence("Poniendo " + sec.label + " en orden aleatorio. Empieza " + spoken(first.Title))
+}
+
+// endSentence adds a period unless the text already ends a sentence.
+func endSentence(s string) string {
+	if strings.HasSuffix(s, ".") || strings.HasSuffix(s, "?") || strings.HasSuffix(s, "!") {
+		return s
+	}
+	return s + "."
 }
