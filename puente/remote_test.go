@@ -70,8 +70,9 @@ func TestRemoteRunsCommandsAndRepliesOnTheTopic(t *testing.T) {
 	srv := httptest.NewServer(f.handler(topic))
 	defer srv.Close()
 	var mu sync.Mutex
-	var got []string
-	r := &Remote{Server: srv.URL, Topic: topic, HTTP: srv.Client(), Retry: 5 * time.Millisecond,
+	var got, spoken []string
+	r := &Remote{Speak: func(text string) { mu.Lock(); spoken = append(spoken, text); mu.Unlock() },
+		Server: srv.URL, Topic: topic, HTTP: srv.Client(), Retry: 5 * time.Millisecond,
 		Answer: func(_ context.Context, text string) string {
 			mu.Lock()
 			got = append(got, text)
@@ -89,6 +90,9 @@ func TestRemoteRunsCommandsAndRepliesOnTheTopic(t *testing.T) {
 	defer mu.Unlock()
 	if len(got) != 1 || got[0] != "apaga la luz" {
 		t.Fatalf("commands run: %q (own replies and over-long messages are skipped)", got)
+	}
+	if len(spoken) != 1 || spoken[0] != "Apagué la luz." {
+		t.Fatalf("the answer must also be spoken on the Echo: %q", spoken)
 	}
 	if posts[0] != "Apagué la luz." || headers[0].Get("Tags") != "mia" || headers[0].Get("Title") != "Mia" {
 		t.Fatalf("reply %q headers %v", posts[0], headers[0])

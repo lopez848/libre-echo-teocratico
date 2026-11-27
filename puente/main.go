@@ -209,6 +209,10 @@ func main() {
 			defer cancel()
 			return s.answer(ctx, inbound{Model: *remoteModel, Messages: []chatMessage{{Role: "user", Content: text}}}, "Bearer "+key)
 		}
+		// No agentd turn speaks a typed command's answer, so the bridge
+		// says it itself as soon as the speaker is quiet.
+		said := &tailSpeaker{Voice: voice, Poll: 200 * time.Millisecond, Idle: 400 * time.Millisecond}
+		rm.Speak = func(text string) { said.Start(SplitSentences(text, 200)) }
 		log.Printf("remote commands on ntfy (%s)", rm.Server)
 		go rm.Run(context.Background())
 	}

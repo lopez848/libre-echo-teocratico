@@ -24,8 +24,9 @@ type Remote struct {
 	Server, Topic string
 	HTTP          *http.Client // no overall timeout: the stream stays open
 	Answer        func(ctx context.Context, text string) string
-	Retry         time.Duration // wait before reconnecting
-	last          string        // id of the last message seen
+	Speak         func(text string) // says the answer aloud on the Echo; nil skips it
+	Retry         time.Duration     // wait before reconnecting
+	last          string            // id of the last message seen
 }
 
 const (
@@ -94,6 +95,9 @@ func (r *Remote) stream(ctx context.Context) error {
 		} else {
 			logf("remote command %q", text)
 			reply = r.Answer(ctx, text)
+			if r.Speak != nil {
+				r.Speak(reply)
+			}
 		}
 		if err := r.post(ctx, reply); err != nil {
 			log.Printf("remote reply: %v", err)
