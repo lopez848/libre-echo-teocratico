@@ -261,6 +261,7 @@ func (s *server) answer(ctx context.Context, in inbound, auth string) string {
 	setLastUser(in.Messages, user)
 	if stopWords[fold(user)] {
 		svc.Reader.Forget() // "para" ends the reading for good
+		svc.Light.StopEffect()
 		pausedPlayer = false
 		return Stop(s.api)
 	}
@@ -272,6 +273,9 @@ func (s *server) answer(ctx context.Context, in inbound, auth string) string {
 	}
 	if isJWHelpQuestion(user) {
 		return jwHelp
+	}
+	if isLightHelpQuestion(user) {
+		return lightHelp
 	}
 	if isThermostatQuestion(user) {
 		return thermostatStatus()

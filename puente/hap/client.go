@@ -84,6 +84,12 @@ func Dial(addr string, p *Pairing) (*Client, error) {
 		return nil, err
 	}
 	conn.SetDeadline(time.Time{})
+	// Some accessories switch the connection to encryption only after they
+	// have sent the last pair-verify reply; a request that arrives in that
+	// gap is read as plain text and never answered (seen with brutella/hap
+	// about once in nine sessions). Connections stay open, so this pause
+	// is paid once per session.
+	time.Sleep(100 * time.Millisecond)
 	sc := &secureConn{Conn: conn, wkey: w, rkey: r}
 	return &Client{conn: sc, br: bufio.NewReader(sc), host: addr}, nil
 }

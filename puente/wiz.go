@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"math/rand/v2"
 	"net"
+	"strings"
 	"sync"
 	"time"
 )
@@ -15,9 +19,99 @@ import (
 type Wiz struct {
 	Broadcast string // where discovery goes; default 255.255.255.255:38899
 
+	EffectStep time.Duration // time between effect updates; default 250 ms
+
 	mu   sync.Mutex
 	addr string // last address the bulb answered from
+
+	emu        sync.Mutex
+	stopEffect context.CancelFunc
+	effectDone chan struct{}
 }
+
+// StopEffect ends the running light effect, if any.
+func (w *Wiz) StopEffect() {
+	if w == nil {
+		return
+	}
+	w.emu.Lock()
+	defer w.emu.Unlock()
+	if w.stopEffect != nil {
+		w.stopEffect()
+		<-w.effectDone // no update may arrive after the effect is stopped
+		w.stopEffect, w.effectDone = nil, nil
+	}
+}
+
+// auroraColors are the stops of the aurora effect: greens, teals, blues and
+// violets, like a northern lights sky.
+var auroraColors = [][3]float64{
+	{0, 255, 90}, {0, 220, 150}, {0, 170, 255}, {60, 255, 120}, {110, 0, 255}, {0, 255, 60}, {170, 0, 220}, {0, 200, 200},
+}
+
+// startAurora moves the bulb smoothly between aurora colors until stopped.
+func (w *Wiz) startAurora() {
+	w.StopEffect()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	w.emu.Lock()
+	w.stopEffect, w.effectDone = cancel, done
+	w.emu.Unlock()
+	step := w.EffectStep
+	if step == 0 {
+		step = 250 * time.Millisecond
+	}
+	go func() {
+		defer close(done)
+		cur := auroraColors[0]
+		for i := 1; ; i++ {
+			next := auroraColors[rand.IntN(len(auroraColors))]
+			steps := 16 + rand.IntN(16) // 4 to 8 s per move at 250 ms
+			dim := 55 + float64(rand.IntN(46))
+			for k := 1; k <= steps; k++ {
+				f := float64(k) / float64(steps)
+				f = f * f * (3 - 2*f) // ease in and out
+				var c [3]float64
+				for j := range c {
+					c[j] = math.Round(cur[j] + (next[j]-cur[j])*f)
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(step):
+				}
+				if ctx.Err() != nil {
+					return
+				}
+				w.call("setPilot", map[string]any{"state": true, "r": c[0], "g": c[1], "b": c[2], "dimming": dim})
+			}
+			cur = next
+		}
+	}()
+}
+
+// lightScenes are the bulb's built-in scenes (WiZ sceneId), by spoken name.
+var lightScenes = map[string]int{
+	"oceano": 1, "romance": 2, "romantica": 2, "atardecer": 3, "puesta de sol": 3, "fiesta": 4, "chimenea": 5, "acogedor": 6,
+	"acogedora": 6, "bosque": 7, "colores pastel": 8, "pastel": 8, "despertar": 9, "amanecer": 9, "hora de dormir": 10,
+	"dormir": 10, "luz de dia": 12, "luz nocturna": 14, "noche": 14, "concentracion": 15, "relajacion": 16, "relajar": 16,
+	"colores reales": 17, "television": 18, "tele": 18, "plantas": 19, "primavera": 20, "verano": 21, "otono": 22,
+	"inmersion": 23, "fondo del mar": 23, "jungla": 24, "selva": 24, "mojito": 25, "club": 26, "discoteca": 26,
+	"navidad": 27, "halloween": 28, "velas": 29, "luz de velas": 29, "blanco dorado": 30, "pulso": 31, "steampunk": 32,
+	"diwali": 33, "cielo nevado": 36, "nieve": 36,
+}
+
+// sceneNames is how each scene is said back.
+var sceneNames = map[int]string{
+	1: "océano", 2: "romance", 3: "atardecer", 4: "fiesta", 5: "chimenea", 6: "acogedor", 7: "bosque", 8: "colores pastel",
+	9: "despertar", 10: "hora de dormir", 12: "luz de día", 14: "luz nocturna", 15: "concentración", 16: "relajación",
+	17: "colores reales", 18: "televisión", 19: "plantas", 20: "primavera", 21: "verano", 22: "otoño", 23: "inmersión",
+	24: "jungla", 25: "mojito", 26: "club", 27: "navidad", 28: "halloween", 29: "velas", 30: "blanco dorado", 31: "pulso",
+	32: "steampunk", 33: "diwali", 36: "cielo nevado",
+}
+
+// whiteScenes are scenes that are just a white tone: said as that white.
+var whiteScenes = map[int]bool{11: true, 12: true, 13: true, 30: true, 34: true}
 
 var errNoBulb = errors.New("bulb not found")
 
@@ -149,6 +243,8 @@ func lightStatus() string {
 	}
 	what := "en una escena"
 	switch {
+	case p.SceneID > 0 && !whiteScenes[int(p.SceneID)] && sceneNames[int(p.SceneID)] != "":
+		what = "en la escena " + sceneNames[int(p.SceneID)]
 	case p.R != nil && p.G != nil && p.B != nil:
 		what = "en un color"
 		for name, c := range lightColors {
@@ -164,9 +260,34 @@ func lightStatus() string {
 
 // setLight turns the bulb on or off, sets brightness (10-100), a color name
 // or a white tone (warm, neutral, cool).
-func setLight(state, color, white string, brightness float64, hasBrightness bool) string {
+func setLight(state, color, white, scene, effect string, brightness float64, hasBrightness bool) string {
 	if svc.Light == nil {
 		return "No hay ningún bombillo configurado."
+	}
+	svc.Light.StopEffect() // any light command ends a running effect
+	if effect != "" && state != "off" {
+		if fold(effect) != "aurora" {
+			return "Por ahora el único efecto que tengo es la aurora boreal."
+		}
+		if _, err := svc.Light.call("getPilot", map[string]any{}); err != nil {
+			return lightError(err)
+		}
+		svc.Light.startAurora()
+		return "Listo, puse la aurora boreal en la luz."
+	}
+	if scene != "" && state != "off" {
+		id, ok := lightScenes[fold(scene)]
+		if !ok {
+			return "No conozco esa escena. Puedo poner, por ejemplo, océano, atardecer, chimenea, bosque, fiesta, velas, navidad o cielo nevado."
+		}
+		ps := map[string]any{"state": true, "sceneId": id}
+		if hasBrightness {
+			ps["dimming"] = min(max(brightness, 10), 100)
+		}
+		if _, err := svc.Light.call("setPilot", ps); err != nil {
+			return lightError(err)
+		}
+		return "Listo, puse la escena " + sceneNames[id] + "."
 	}
 	params := map[string]any{}
 	var said []string
@@ -211,4 +332,32 @@ func setLight(state, color, white string, brightness float64, hasBrightness bool
 		out += " " + s
 	}
 	return out + "."
+}
+
+// lightHelp lists what the bulb can do and how to ask for it.
+const lightHelp = "Con el bombillo puedes pedirme: prende la luz o apaga la luz; pon la luz al 50 por ciento, " +
+	"o cualquier brillo del 10 al 100; un color, por ejemplo pon la luz azul, roja, verde, amarilla, naranja, morada, rosada o blanca; " +
+	"el tono de blanco, pon la luz cálida, neutra o fría; el efecto de aurora boreal, pon la luz de aurora boreal, " +
+	"que sigue hasta que me pidas otra cosa de la luz o digas para; y las escenas del bombillo, por ejemplo pon la escena océano, " +
+	"atardecer, chimenea, bosque, jungla, velas, fiesta, club, relajación, concentración, luz nocturna, hora de dormir, despertar, " +
+	"primavera, verano, otoño, navidad, halloween o cielo nevado. También puedes preguntarme ¿la luz está prendida?"
+
+// isLightHelpQuestion recognizes "¿qué podemos hacer con el bombillo?".
+func isLightHelpQuestion(text string) bool {
+	f := fold(text)
+	asks := false
+	for _, a := range []string{"que puedes hacer", "que podemos hacer", "que sabes hacer", "que se puede hacer", "que cosas puedes hacer", "que opciones"} {
+		if strings.Contains(f, a) {
+			asks = true
+		}
+	}
+	if !asks {
+		return false
+	}
+	for _, k := range []string{"bombillo", "bombilla", "foco", "la luz", "lampara"} {
+		if strings.Contains(f, k) {
+			return true
+		}
+	}
+	return false
 }
