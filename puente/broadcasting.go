@@ -62,7 +62,7 @@ func tracksOf(ms []mediatorMedia) []datedTrack {
 			}
 		}
 		if best != "" {
-			out = append(out, datedTrack{Track{Title: m.Title, URL: best, Duration: m.Duration}, m.Published})
+			out = append(out, datedTrack{Track{Title: cleanVideoTitle(m.Title), URL: best, Duration: m.Duration}, m.Published})
 		}
 	}
 	return out
@@ -111,6 +111,18 @@ func (j *JW) CategoryTracks(ctx context.Context, key string) ([]Track, error) {
 		return nil, fmt.Errorf("%s: no videos", key)
 	}
 	return newestFirst(items), nil
+}
+
+var reAudioDescribed = regexp.MustCompile(`\s*\(con audiodescripci(ones|ón)\)\s*$`)
+
+// cleanVideoTitle makes a video title read well: the "(con
+// audiodescripciones)" note is dropped (Mia already says it) and an
+// ellipsis becomes a colon.
+func cleanVideoTitle(t string) string {
+	t = reAudioDescribed.ReplaceAllString(t, "")
+	t = strings.ReplaceAll(t, "...", ":")
+	t = strings.ReplaceAll(t, "…", ":")
+	return strings.TrimSpace(t)
 }
 
 var reConvention = regexp.MustCompile(`^(\d{4})Convention$`)

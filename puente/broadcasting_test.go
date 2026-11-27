@@ -96,3 +96,16 @@ func TestSpokenKeepsTheJWAcronym(t *testing.T) {
 		t.Fatalf("shouted titles are still softened: %q", got)
 	}
 }
+
+func TestVideoTitlesAreCleanedForTheVoice(t *testing.T) {
+	for in, want := range map[string]string{
+		"Los jóvenes preguntan... ¿Cómo conseguir amigos verdaderos? (con audiodescripciones)": "Los jóvenes preguntan: ¿Cómo conseguir amigos verdaderos?",
+		"Nehemías: La felicidad (parte 2) (con audiodescripciones)":                            "Nehemías: La felicidad (parte 2)",
+		"Episodio 1: La verdadera luz del mundo (con audiodescripción)":                        "Episodio 1: La verdadera luz del mundo",
+		"JW Broadcasting: Noviembre de 2026":                                                   "JW Broadcasting: Noviembre de 2026",
+	} {
+		if got := cleanVideoTitle(in); got != want {
+			t.Errorf("%q -> %q, want %q", in, got, want)
+		}
+	}
+}
