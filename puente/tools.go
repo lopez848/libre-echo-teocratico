@@ -48,6 +48,7 @@ var toolSpecs = json.RawMessage(`[
 {"type":"function","function":{"name":"set_thermostat","description":"Control the home thermostat: mode off (apaga el aire/la calefacción), heat (calefacción), cool (aire acondicionado), auto; and/or the target temperature in the thermostat's degrees ('pon el aire a 72', 'sube la calefacción a 70').","parameters":{"type":"object","properties":{"mode":{"type":"string","enum":["off","heat","cool","auto"]},"temperature":{"type":"number"}}}}},
 {"type":"function","function":{"name":"light_status","description":"Say whether the room light (WiZ bulb) is on, its color and brightness.","parameters":{"type":"object","properties":{}}}},
 {"type":"function","function":{"name":"set_light","description":"Control the room light (WiZ bulb): 'prende la luz' (state on), 'apaga la luz' (state off), 'pon la luz al 50' (brightness 10-100), 'pon la luz azul' (color), 'luz cálida/fría' (white warm/neutral/cool). Combine fields as needed.","parameters":{"type":"object","properties":{"state":{"type":"string","enum":["on","off"]},"brightness":{"type":"number"},"color":{"type":"string","enum":["rojo","naranja","amarillo","verde","azul","morado","rosado","blanco"]},"white":{"type":"string","enum":["warm","neutral","cool"]},"scene":{"type":"string","description":"a built-in scene by its Spanish name: océano, atardecer, chimenea, bosque, jungla, velas, fiesta, club, relajación, concentración, luz nocturna, hora de dormir, despertar, primavera, verano, otoño, navidad, halloween, cielo nevado..."},"effect":{"type":"string","enum":["aurora"],"description":"aurora: northern lights effect ('aurora boreal')"}}}}},
+{"type":"function","function":{"name":"tv_control","description":"Control a TV of the house (Android TV). action abrir opens an app ('poné Netflix en el TV'), cerrar force-stops it ('cerrá YouTube en el TV'), tecla sends a key or turns the screen on or off ('pausá el TV', 'volvé atrás en el TV', 'apagá la pantalla del TV'), volumen rises, lowers or mutes ('subí el volumen del TV', 'silenciá el TV'). If the user names a TV by room, pass tv with that name, otherwise omit tv.","parameters":{"type":"object","properties":{"action":{"type":"string","enum":["abrir","cerrar","tecla","volumen"]},"app":{"type":"string","description":"the app by its Spanish name: netflix, youtube, spotify, disney, max, amazon, jw..."},"key":{"type":"string","enum":["home","atras","arriba","abajo","izquierda","derecha","ok","menu","reproducir","pausa","siguiente","anterior","prender","apagar"]},"volume":{"type":"string","enum":["subir","bajar","silenciar"]},"steps":{"type":"integer","description":"how many volume steps, default 1"},"tv":{"type":"string","description":"the room name of the TV when the user said one, e.g. sala"}},"required":["action"]}}},
 {"type":"function","function":{"name":"light_help","description":"Explain everything the room light (bulb) can do and how to ask for it ('qué podemos hacer con el bombillo').","parameters":{"type":"object","properties":{}}}},
 {"type":"function","function":{"name":"play_jw_broadcasting","description":"Play videos (their audio) from JW Broadcasting (tv.jw.org). section: programa_mensual (the monthly program), discursos, noticias, experiencias (entrevistas y experiencias), producciones (dramas, películas), ninos, jovenes, familia, galaad (graduación de Galaad), reunion_anual, programas_especiales, asamblea (the latest regional convention). mode reciente for the newest one ('el programa de este mes', 'el último'), otherwise aleatorio.","parameters":{"type":"object","properties":{"section":{"type":"string","enum":["programa_mensual","discursos","noticias","experiencias","producciones","ninos","jovenes","familia","galaad","reunion_anual","programas_especiales","asamblea"]},"mode":{"type":"string","enum":["reciente","aleatorio"]}},"required":["section"]}}},
 {"type":"function","function":{"name":"now_playing","description":"Say which song is playing now.","parameters":{"type":"object","properties":{}}}},
@@ -154,6 +155,8 @@ func Exec(api API, name, args string) string {
 	case "set_light":
 		b, ok := a["brightness"].(float64)
 		return setLight(strArg(a, "state"), strArg(a, "color"), strArg(a, "white"), strArg(a, "scene"), strArg(a, "effect"), b, ok)
+	case "tv_control":
+		return tvControl(strArg(a, "action"), strArg(a, "tv"), strArg(a, "app"), strArg(a, "key"), strArg(a, "volume"), intArg(a, "steps"))
 	case "light_help":
 		return lightHelp
 	case "now_playing":
@@ -678,6 +681,7 @@ type Services struct {
 	Player   *Player
 	Thermo   *Thermostat
 	Light    *Wiz
+	TVs      *TVs
 	Location *time.Location
 	Now      func() time.Time
 }
